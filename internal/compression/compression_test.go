@@ -1,6 +1,7 @@
 package compression
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/golang/snappy"
@@ -40,20 +41,17 @@ func TestMaxEncodedLen(t *testing.T) {
 }
 
 func TestCompress(t *testing.T) {
-
-	t.Skip("Skipping Compression tests: Decompress methods not implemented yet")
-
 	nc := NoneCodec{}
 	sc := SnappyCodec{}
 
 	nc_dst := make([]byte, 128)
-	nc_src := "Hello World"
+	nc_src := []byte("abcdabcdabcdabcdabcd")
 
 	sc_dst := make([]byte, 128)
-	sc_src := "Hello World"
+	sc_src := []byte("abcdabcdabcdabcdabcd")
 
-	nc_bytes, nc_err := nc.Compress(nc_dst, []byte(nc_src))
-	sc_bytes, sc_err := sc.Compress(sc_dst, []byte(sc_src))
+	nc_bytes, nc_err := nc.Compress(nc_dst, nc_src)
+	sc_bytes, sc_err := sc.Compress(sc_dst, sc_src)
 
 	if nc_err != nil {
 		t.Fatal(nc_err)
@@ -63,40 +61,38 @@ func TestCompress(t *testing.T) {
 		t.Fatal(sc_err)
 	}
 
-	if nc_bytes != len([]byte(nc_src)) {
-		t.Fatalf("Expected %d bytes in compressed format, got %d", len([]byte(nc_src)), nc_bytes)
+	if nc_bytes != len(nc_src) {
+		t.Fatalf("Expected %d bytes in compressed format, got %d", len(nc_src), nc_bytes)
 	}
 
-	if sc_bytes != len([]byte(sc_src)) {
-		t.Fatalf("Expected %d bytes in compressed format, got %d", len([]byte(nc_src)), nc_bytes)
+	// NOTE: Cannot meaningfully check for exact Snappy compressed example size
+	if sc_bytes > snappy.MaxEncodedLen(len(sc_src)) {
+		t.Fatalf("Expected at most %d bytes in compressed format, got %d", snappy.MaxEncodedLen(len(sc_src)), sc_bytes)
 	}
 
-	if string(nc_dst) != "Hello World" {
-		t.Fatalf("Expected compressed string to be %s, got %s", "Hello World", string(nc_dst))
+	if !(bytes.Equal(nc_dst[:nc_bytes], nc_src)) {
+		t.Fatalf("Expected none-compressed byte array to be %s, got %s", "abcdabcdabcdabcdabcd", string(nc_dst))
 	}
 
-	if string(sc_dst) != "SNAPPY_EXAMPLE" {
-		t.Fatalf("Expected compressed string to be %s, got %s", "SNAPPY EXAMPLE", string(nc_dst))
+	if !(bytes.Equal(sc_dst[:sc_bytes], snappy.Encode(nil, []byte("abcdabcdabcdabcdabcd")))) {
+		t.Fatalf("Expected snappy-compressed byte array to be %s, got %s", "abcdabcdabcdabcdabcd", string(nc_dst))
 	}
 }
 
 func TestDecompress(t *testing.T) {
-
-	t.Skip("Skipping Decompression tests: Decompress methods not implemented yet")
-
 	nc := NoneCodec{}
 	sc := SnappyCodec{}
 
 	nc_dst := make([]byte, 128)
-	nc_src := "Hello World"
+	nc_src := []byte("abcdabcdabcdabcdabcd")
 
 	// Need to figure out snappy compressed example
 	sc_dst := make([]byte, 128)
-	sc_src := "BETTER SNAPPY EXAMPLE"
+	sc_src := snappy.Encode(nil, []byte("abcdabcdabcdabcdabcd"))
 
 	// Add nc_bytes and sc_bytes after implementation
-	nc_bytes, nc_err := nc.Decompress(nc_dst, []byte(nc_src))
-	sc_bytes, sc_err := sc.Decompress(sc_dst, []byte(sc_src))
+	nc_bytes, nc_err := nc.Decompress(nc_dst, nc_src)
+	sc_bytes, sc_err := sc.Decompress(sc_dst, sc_src)
 
 	if nc_err != nil {
 		t.Fatal(nc_err)
@@ -106,40 +102,39 @@ func TestDecompress(t *testing.T) {
 		t.Fatal(sc_err)
 	}
 
-	if nc_bytes != len([]byte(nc_src)) {
-		t.Fatalf("Expected %d bytes in decompressed format, got %d", len([]byte(nc_src)), nc_bytes)
+	if nc_bytes != len(nc_src) {
+		t.Fatalf("Expected %d bytes in decompressed format, got %d", len(nc_src), nc_bytes)
 	}
 
-	if sc_bytes != len([]byte(sc_src)) {
-		t.Fatalf("Expected %d bytes in decompressed format, got %d", len([]byte(nc_src)), nc_bytes)
+	expected_sc_bytes, _ := snappy.DecodedLen(sc_src)
+	if sc_bytes != expected_sc_bytes {
+		t.Fatalf("Expected %d bytes in decompressed format, got %d", expected_sc_bytes, sc_bytes)
 	}
 
-	if string(nc_dst) != "Hello World" {
-		t.Fatalf("Expected decompressed string to be %s, got %s", "Hello World", string(nc_dst))
+	if !(bytes.Equal(nc_dst[:nc_bytes], nc_src)) {
+		t.Fatalf("Expected none-decompressed byte array to be %s, got %s", "abcdabcdabcdabcdabcd", nc_dst)
 	}
 
-	if string(sc_dst) != "SNAPPY_EXAMPLE" {
-		t.Fatalf("Expected decompressed string to be %s, got %s", "SNAPPY EXAMPLE", string(nc_dst))
+	if !(bytes.Equal(sc_dst[:sc_bytes], []byte("abcdabcdabcdabcdabcd"))) {
+		t.Fatalf("Expected snappy-decompressed byte array to be %s, got %s", "abcdabcdabcdabcdabcd", sc_dst)
 	}
 }
 
 func TestRoundTrip(t *testing.T) {
-	t.Skip("Skipping Round Trip tests: Compress/Decompress methods not implemented yet")
-
 	nc := NoneCodec{}
 	sc := SnappyCodec{}
 
 	nc_dst1 := make([]byte, 128)
 	nc_dst2 := make([]byte, 128)
-	nc_src := "Hello World"
+	nc_src := []byte("abcdabcdabcdabcdabcd")
 
 	// Need to figure out snappy compressed example
 	sc_dst1 := make([]byte, 128)
 	sc_dst2 := make([]byte, 128)
-	sc_src := "BETTER SNAPPY EXAMPLE"
+	sc_src := []byte("abcdabcdabcdabcdabcd")
 
-	nc_comp_bytes, nc_comp_err := nc.Compress(nc_dst1, []byte(nc_src))
-	sc_comp_bytes, sc_comp_err := nc.Compress(sc_dst1, []byte(nc_src))
+	nc_comp_bytes, nc_comp_err := nc.Compress(nc_dst1, nc_src)
+	sc_comp_bytes, sc_comp_err := sc.Compress(sc_dst1, nc_src)
 
 	if nc_comp_err != nil {
 		t.Fatal(nc_comp_err)
@@ -149,16 +144,16 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatal(sc_comp_err)
 	}
 
-	if nc_comp_bytes != len([]byte(nc_src)) {
-		t.Fatalf("Expected %d bytes in decompressed format, got %d", len([]byte(nc_src)), nc_comp_bytes)
+	if nc_comp_bytes != len(nc_src) {
+		t.Fatalf("Expected %d bytes in compressed format, got %d", len(nc_src), nc_comp_bytes)
 	}
 
-	if sc_comp_bytes != len([]byte(sc_src)) {
-		t.Fatalf("Expected %d bytes in decompressed format, got %d", len([]byte(nc_src)), sc_comp_bytes)
+	if sc_comp_bytes > snappy.MaxEncodedLen(len(sc_src)) {
+		t.Fatalf("Expected at most %d bytes in compressed snappy format, got %d", len(sc_src), sc_comp_bytes)
 	}
 
-	nc_decom_bytes, nc_decom_err := nc.Decompress(nc_dst2, nc_dst1)
-	sc_decom_bytes, sc_decom_err := sc.Decompress(sc_dst2, sc_dst1)
+	nc_decom_bytes, nc_decom_err := nc.Decompress(nc_dst2, nc_dst1[:nc_comp_bytes])
+	sc_decom_bytes, sc_decom_err := sc.Decompress(sc_dst2, sc_dst1[:sc_comp_bytes])
 
 	if nc_decom_err != nil {
 		t.Fatal(nc_decom_err)
@@ -169,18 +164,18 @@ func TestRoundTrip(t *testing.T) {
 	}
 
 	if nc_decom_bytes != len([]byte(nc_src)) {
-		t.Fatalf("Expected %d bytes in decompressed format, got %d", len([]byte(nc_src)), nc_comp_bytes)
+		t.Fatalf("Expected %d bytes in decompressed format, got %d", len(nc_src), nc_comp_bytes)
 	}
 
 	if sc_decom_bytes != len([]byte(sc_src)) {
-		t.Fatalf("Expected %d bytes in decompressed format, got %d", len([]byte(nc_src)), sc_comp_bytes)
+		t.Fatalf("Expected %d bytes in decompressed format, got %d", len(nc_src), sc_comp_bytes)
 	}
 
-	if string(nc_dst2) != nc_src {
-		t.Fatalf("Expected returned value to be %s, got %s", nc_src, string(nc_dst2))
+	if !(bytes.Equal(nc_dst2[:nc_decom_bytes], nc_src)) {
+		t.Fatalf("Expected none byte array to be %s, got %s", "abcdabcdabcdabcdabcd", nc_dst2)
 	}
 
-	if string(sc_dst2) != sc_src {
-		t.Fatalf("Expected returned value to be %s, got %s", sc_src, string(sc_dst2))
+	if !(bytes.Equal(sc_dst2[:sc_decom_bytes], sc_src)) {
+		t.Fatalf("Expected snappy byte array to be %s, got %s", "abcdabcdabcdabcdabcd", sc_dst2)
 	}
 }
