@@ -83,8 +83,9 @@ func (p *Pool) Acquire(ctx context.Context) (int, error) {
 	// Block until we have a free buffer
 	select {
 	case id := <-p.free:
-		// Header cleanup before providing the buffer to the worker
+		// Header cleanup and accounting before providing the buffer to the worker
 		clear(p.getBuf(id)[:HeaderSize])
+		p.used[id].Store(true)
 		return id, nil
 	case <-ctx.Done():
 		return 0, ctx.Err()
@@ -106,6 +107,7 @@ func (p *Pool) Release(ctx context.Context, id int) error {
 	// Wait for the buffer ID to be loaded back into the free list
 	select {
 	case p.free <- id:
+		p.used[id].Store(false)
 		return nil
 	default:
 		return errors.New("Something bad happened in Release(), possibly a double release")
