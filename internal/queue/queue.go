@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"io"
 )
 
 // Development Note: A "poison pill" is equivalent to just closing
@@ -46,7 +47,11 @@ func (q Queue) Pop(ctx context.Context) (int, error) {
 
 	// Wait for a buffer ID to be made available in the queue
 	select {
-	case entry := <-q:
+	case entry, ok := <-q:
+		// When queue is closed
+		if !ok {
+			return 0, io.EOF
+		}
 		return entry, nil
 
 	// If the surrounding context no longer needs the pop, send an error
