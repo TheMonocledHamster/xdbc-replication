@@ -66,12 +66,18 @@ BUFFER HANDLING
 ******************
 */
 
-// Retrieves the header and entire payload of a buffer
-func (p *Pool) getBuf(id int) []byte {
-	p.checkID(id)
-	start := int(id) * p.bufSize
-	return p.slab[start : start+p.bufSize : start+p.bufSize]
+// Buffer returns the slab-backed header and payload for an acquired buffer ID.
+// The caller owns the bytes until it releases the ID or forwards it to a queue.
+func (p *Pool) Buffer(id int) ([]byte, error) {
+	if err := p.checkID(id); err != nil {
+		return nil, err
+	}
+	start := id * p.bufSize
+	return p.slab[start : start+p.bufSize : start+p.bufSize], nil
 }
+
+// PayloadCap is the maximum payload size of a logical buffer, excluding its header.
+func (p *Pool) PayloadCap() int { return p.cfg.PayloadCap }
 
 // Gets a free buffer from the pool
 func (p *Pool) Acquire(ctx context.Context) (int, error) {
@@ -83,8 +89,12 @@ func (p *Pool) Acquire(ctx context.Context) (int, error) {
 	// Block until we have a free buffer
 	select {
 	case id := <-p.free:
+		buf, err := p.Buffer(id)
+		if err != nil {
+			return 0, err
+		}
 		// Header cleanup and accounting before providing the buffer to the worker
-		clear(p.getBuf(id)[:HeaderSize])
+		clear(buf[:HeaderSize])
 		p.used[id].Store(true)
 		return id, nil
 	case <-ctx.Done():

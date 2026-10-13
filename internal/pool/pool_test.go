@@ -94,7 +94,7 @@ func TestCheckID(t *testing.T) {
 	}
 }
 
-func TestGetBuf(t *testing.T) {
+func TestBufferContents(t *testing.T) {
 	cfg := Config{NumBuffers: 2, PayloadCap: 250}
 	pool, err := New(cfg)
 
@@ -105,15 +105,38 @@ func TestGetBuf(t *testing.T) {
 	myStr1 := "Hello"
 	myStr2 := "World"
 
-	copy(pool.getBuf(0)[HeaderSize:HeaderSize+len(myStr1)], []byte(myStr1))
-	copy(pool.getBuf(1)[HeaderSize:HeaderSize+len(myStr2)], []byte(myStr2))
+	ctx := context.Background()
+	id1, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id2, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf1, err := pool.Buffer(id1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf2, err := pool.Buffer(id2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copy(buf1[HeaderSize:HeaderSize+len(myStr1)], []byte(myStr1))
+	copy(buf2[HeaderSize:HeaderSize+len(myStr2)], []byte(myStr2))
 
-	if string(pool.getBuf(0)[HeaderSize:HeaderSize+len(myStr1)]) != myStr1 {
-		t.Fatalf("Expected %s from getting buffer #0, got %s", myStr1, string(pool.getBuf(0)[HeaderSize:HeaderSize+len(myStr1)]))
+	if got := string(buf1[HeaderSize : HeaderSize+len(myStr1)]); got != myStr1 {
+		t.Fatalf("Expected %s from getting buffer #0, got %s", myStr1, got)
 	}
 
-	if string(pool.getBuf(1)[HeaderSize:HeaderSize+len(myStr2)]) != myStr2 {
-		t.Fatalf("Expected %s from getting buffer #1, got %s", myStr2, string(pool.getBuf(1)[HeaderSize:HeaderSize+len(myStr2)]))
+	if got := string(buf2[HeaderSize : HeaderSize+len(myStr2)]); got != myStr2 {
+		t.Fatalf("Expected %s from getting buffer #1, got %s", myStr2, got)
+	}
+	if err := pool.Release(ctx, id1); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.Release(ctx, id2); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -169,5 +192,36 @@ func TestRelease(t *testing.T) {
 
 	if pool.used[0].Load() {
 		t.Fatal("Expected acquired buffer's 'used' value to be false, but got true")
+	}
+}
+
+func TestBufferAccess(t *testing.T) {
+	p, err := New(Config{NumBuffers: 1, PayloadCap: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.PayloadCap() != 64 {
+		t.Fatal("wrong payload capacity")
+	}
+	id, err := p.Acquire(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := p.Buffer(id)
+	if err != nil || len(b) != HeaderSize+64 || cap(b) != len(b) {
+		t.Fatalf("buffer: length %d, %v", len(b), err)
+	}
+	b[HeaderSize] = 42
+	again, err := p.Buffer(id)
+	if err != nil || again[HeaderSize] != 42 {
+		t.Fatal("accessor must return slab-backed bytes")
+	}
+	for _, invalid := range []int{-1, 1} {
+		if _, err := p.Buffer(invalid); err == nil {
+			t.Fatalf("accepted ID %d", invalid)
+		}
+	}
+	if err := p.Release(context.Background(), id); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -27,7 +27,8 @@ Initialize a Pool with `New(cfg Config)`
 
 - `Acquire(ctx context.Context)` yields an available buffer ID
 - `Release(ctx context.Context, id int)` returns a buffer to the pool for reuse
-- `getBuf(id int)` gets the byte slice corresponding to a buffer in the pool
+- `Buffer(id int) ([]byte, error)` validates the ID and returns the slab-backed
+  header and entire payload for a buffer the caller owns
 - `checkID(id int)` confirms if an ID is valid for the pool
 
 *Note: For None codec, (de-)compress is just a copy and MaxEncodedLen is effectively a no-op returning the input*
