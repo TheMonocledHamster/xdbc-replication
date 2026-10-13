@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -223,5 +224,31 @@ func TestBufferAccess(t *testing.T) {
 	}
 	if err := p.Release(id); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDoubleRelease(t *testing.T) {
+	cfg := Config{NumBuffers: 1, PayloadCap: 250}
+	pool, err := New(cfg)
+
+	if err != nil {
+		t.Fatalf("Encountered unexpected error from initializing a pool: %s", err)
+	}
+
+	ctx := context.Background()
+	id, acqErr := pool.Acquire(ctx)
+	if acqErr != nil {
+		t.Fatalf("Encountered unexpected error from acquiring a buffer: %s", acqErr)
+	}
+
+	relErr := pool.Release(id)
+	if relErr != nil {
+		t.Fatalf("Encountered unexpected error from releasing a buffer: %s", relErr)
+	}
+
+	// Attempting double release
+	relErr2 := pool.Release(id)
+	if strings.Compare(relErr2.Error(), "Attempted double-release of buffer") != 0 {
+		t.Fatalf("Expected error of 'Attempted double-release of buffer', got %s", relErr2.Error())
 	}
 }
