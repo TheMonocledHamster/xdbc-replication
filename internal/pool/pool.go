@@ -92,12 +92,7 @@ func (p *Pool) Acquire(ctx context.Context) (int, error) {
 	}
 }
 
-func (p *Pool) Release(ctx context.Context, id int) error {
-	// Verify surrounding context is ok
-	if ctxerr := ctx.Err(); ctxerr != nil {
-		return ctxerr
-	}
-
+func (p *Pool) Release(id int) error {
 	// Make sure the buffer being released even exists
 	iderr := p.checkID(id)
 	if iderr != nil {

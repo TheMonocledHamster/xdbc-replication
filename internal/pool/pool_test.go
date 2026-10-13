@@ -158,7 +158,7 @@ func TestRelease(t *testing.T) {
 		t.Fatalf("Encountered unexpected error from acquiring a buffer: %s", acqErr)
 	}
 
-	relErr := pool.Release(ctx, id)
+	relErr := pool.Release(id)
 	if relErr != nil {
 		t.Fatalf("Encountered unexpected error from releasing a buffer: %s", relErr)
 	}
