@@ -116,4 +116,6 @@ func (p *Pool) Release(id int) error {
 
 	// "used" value for ID guaranteed to be false, now put back into free list
 	p.free <- id
+
+	return nil
 }
