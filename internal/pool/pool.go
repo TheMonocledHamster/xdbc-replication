@@ -115,12 +115,5 @@ func (p *Pool) Release(id int) error {
 	}
 
 	// "used" value for ID guaranteed to be false, now put back into free list
-	select {
-	case p.free <- id:
-		return nil
-	default:
-		// Something bad happened, assume the worker keeps it for now
-		p.used[id].Store(false)
-		return errors.New("Something bad happened in Release(), possibly a double release")
-	}
+	p.free <- id
 }
