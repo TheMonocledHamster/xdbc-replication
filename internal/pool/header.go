@@ -17,7 +17,7 @@ const (
 	offUnused2     = 31
 )
 
-// Using little endian ordering for consistency in networking
+// Using little endian ordering because we can.
 var le = binary.LittleEndian
 
 type BufferHeader struct {
