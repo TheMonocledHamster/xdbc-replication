@@ -1,4 +1,4 @@
-module github.com/TheMonocledHamster/xdbc-go-server.git
+module github.com/TheMonocledHamster/xdbc-replication
 
 go 1.26.2
 

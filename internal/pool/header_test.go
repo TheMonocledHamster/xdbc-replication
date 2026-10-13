@@ -3,7 +3,7 @@ package pool
 import (
 	"testing"
 
-	"github.com/TheMonocledHamster/xdbc-go-server.git/internal/compression"
+	"github.com/TheMonocledHamster/xdbc-replication/internal/compression"
 )
 
 // Shamelessly "reimagined" from Adithya's header test.
