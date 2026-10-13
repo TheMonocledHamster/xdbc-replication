@@ -198,7 +198,7 @@ func Receive(ctx context.Context, conn net.Conn, p *pool.Pool, output queue.Queu
 			return readRemoteError(conn, h)
 		case MessageData:
 			if h.PayloadSize < pool.HeaderSize || uint64(h.PayloadSize) > uint64(cfg.PayloadCap)+pool.HeaderSize || h.Compression != cfg.Compression || h.Format != cfg.Format {
-				return fmt.Errorf("DATA frame does not match negotiated configuration")
+				return fmt.Errorf("DATA frame violates negotiated size / encoding constraints")
 			}
 			if err := receiveBuffer(ctx, conn, p, output, h); err != nil {
 				return err
