@@ -109,12 +109,18 @@ func (p *Pool) Release(id int) error {
 		return iderr
 	}
 
-	// Wait for the buffer ID to be loaded back into the free list
+	// Only update used if we know that it is currently in use
+	if !p.used[id].CompareAndSwap(true, false) {
+		return errors.New("Attempted double-release of buffer")
+	}
+
+	// "used" value for ID guaranteed to be false, now put back into free list
 	select {
 	case p.free <- id:
-		p.used[id].Store(false)
 		return nil
 	default:
+		// Something bad happened, assume the worker keeps it for now
+		p.used[id].Store(false)
 		return errors.New("Something bad happened in Release(), possibly a double release")
 	}
 }
