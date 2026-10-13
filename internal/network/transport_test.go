@@ -65,7 +65,7 @@ func checkReleased(t *testing.T, p *pool.Pool, count int) {
 		ids = append(ids, id)
 	}
 	for _, id := range ids {
-		if err := p.Release(ctx, id); err != nil {
+		if err := p.Release(id); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -209,7 +209,7 @@ func TestParallelWorkersShareQueues(t *testing.T) {
 			t.Fatalf("duplicate or corrupted frame: %+v", h)
 		}
 		seen[h.Seq] = true
-		if err := target.Release(ctx, id); err != nil {
+		if err := target.Release(id); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -297,7 +297,7 @@ func TestTCPTransfer(t *testing.T) {
 				if !bytes.Equal(b[pool.HeaderSize:pool.HeaderSize+len(payload)], payload) {
 					t.Fatal("payload changed")
 				}
-				if err := target.Release(ctx, id); err != nil {
+				if err := target.Release(id); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -415,7 +415,7 @@ func TestNegotiatedExtensionTransfer(t *testing.T) {
 	if !bytes.Equal(buf[pool.HeaderSize:pool.HeaderSize+len(payload)], payload) {
 		t.Fatal("extension payload changed")
 	}
-	if err := target.Release(ctx, id); err != nil {
+	if err := target.Release(id); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-server; err != nil {
@@ -442,7 +442,7 @@ func TestReceiveRequiresEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := p.Release(ctx, id); err != nil {
+	if err := p.Release(id); err != nil {
 		t.Fatal(err)
 	}
 	checkReleased(t, p, 1)
@@ -573,7 +573,7 @@ func TestReceivePoolBackpressure(t *testing.T) {
 	if err := <-result; !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel blocked acquire: %v", err)
 	}
-	if err := p.Release(context.Background(), id); err != nil {
+	if err := p.Release(id); err != nil {
 		t.Fatal(err)
 	}
 	checkReleased(t, p, 1)

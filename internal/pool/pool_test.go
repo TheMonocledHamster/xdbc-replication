@@ -132,10 +132,10 @@ func TestBufferContents(t *testing.T) {
 	if got := string(buf2[HeaderSize : HeaderSize+len(myStr2)]); got != myStr2 {
 		t.Fatalf("Expected %s from getting buffer #1, got %s", myStr2, got)
 	}
-	if err := pool.Release(ctx, id1); err != nil {
+	if err := pool.Release(id1); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.Release(ctx, id2); err != nil {
+	if err := pool.Release(id2); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -221,7 +221,7 @@ func TestBufferAccess(t *testing.T) {
 			t.Fatalf("accepted ID %d", invalid)
 		}
 	}
-	if err := p.Release(context.Background(), id); err != nil {
+	if err := p.Release(id); err != nil {
 		t.Fatal(err)
 	}
 }

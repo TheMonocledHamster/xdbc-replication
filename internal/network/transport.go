@@ -146,7 +146,7 @@ func Send(ctx context.Context, conn net.Conn, p *pool.Pool, input queue.Queue, c
 		}
 		sendErr := sendBuffer(conn, p, id, cfg)
 		// Cleanup must remain possible after cancellation.
-		releaseErr := p.Release(context.Background(), id)
+		releaseErr := p.Release(id)
 		if err := errors.Join(sendErr, releaseErr); err != nil {
 			return err
 		}
@@ -217,7 +217,7 @@ func receiveBuffer(ctx context.Context, r io.Reader, p *pool.Pool, output queue.
 	forwarded := false
 	defer func() {
 		if !forwarded {
-			err = errors.Join(err, p.Release(context.Background(), id))
+			err = errors.Join(err, p.Release(id))
 		}
 	}()
 	b, err := p.Buffer(id)
