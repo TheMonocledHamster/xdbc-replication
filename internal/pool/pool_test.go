@@ -249,6 +249,6 @@ func TestDoubleRelease(t *testing.T) {
 	// Attempting double release
 	relErr2 := pool.Release(id)
 	if relErr2 == nil || strings.Compare(relErr2.Error(), "Attempted double-release of buffer") != 0 {
-		t.Fatalf("Expected error of 'Attempted double-release of buffer', got %s", relErr2.Error())
+		t.Fatalf("Expected error of 'Attempted double-release of buffer', got %s", relErr2)
 	}
 }
