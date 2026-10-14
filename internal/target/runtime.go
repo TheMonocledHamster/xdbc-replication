@@ -23,7 +23,7 @@ type RuntimeConfig struct {
 // source sender. The function owns the connection for the duration of the run.
 // It supports the MVP's uncompressed row format; Snappy requires a decompression
 // stage before Writer.Consume.
-func RunReceiver(ctx context.Context, conn net.Conn, writer *Writer, cfg RuntimeConfig) error {
+func (writer *Writer) RunReceiver(ctx context.Context, conn net.Conn, cfg RuntimeConfig) error {
 	if conn == nil {
 		return errors.New("target: connection is nil")
 	}
