@@ -80,10 +80,19 @@ func TestCheckID(t *testing.T) {
 	}
 
 	for i := range 2 {
-		err = pool.checkID(i)
+		bufID, acqErr := pool.Acquire(context.Background())
+		if acqErr != nil {
+			pool.Release(bufID)
+			t.Fatal(acqErr)
+		}
+
+		err = pool.checkID(bufID)
 		if err != nil {
+			pool.Release(bufID)
 			t.Fatalf("Expected no error for checking ID for buffer #%d, but got an error: %s", i, err)
 		}
+
+		pool.Release(bufID)
 	}
 
 	if pool.checkID(-1) == nil {
@@ -92,6 +101,11 @@ func TestCheckID(t *testing.T) {
 
 	if pool.checkID(3) == nil {
 		t.Fatal("Expected an error for checking ID for buffer #3 (beyond num buffers), but got no error")
+	}
+
+	// Check to see if we get an error on a buffer we don't own
+	if pool.checkID(1) == nil {
+		t.Fatal("Expected an error for checking ID for an unowned buffer, but got no error")
 	}
 }
 
