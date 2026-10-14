@@ -28,7 +28,7 @@ func TestClosedQueueDrainsThenEOF(t *testing.T) {
 	if err := q.Push(ctx, 7); err != nil {
 		t.Fatal(err)
 	}
-	close(*q)
+	close(q)
 	if id, err := q.Pop(ctx); err != nil || id != 7 {
 		t.Fatalf("drain: %d, %v", id, err)
 	}
