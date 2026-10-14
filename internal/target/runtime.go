@@ -20,9 +20,7 @@ type RuntimeConfig struct {
 
 // RunReceiver coordinates one target-side connection from handshake through
 // PostgreSQL insertion. The caller supplies an established connection to the
-// source sender. The function owns the connection for the duration of the run.
-// It supports the MVP's uncompressed row format; Snappy requires a decompression
-// stage before Writer.Consume.
+// source sender. 
 func (writer *Writer) RunReceiver(ctx context.Context, conn net.Conn, cfg RuntimeConfig) error {
 	if conn == nil {
 		return errors.New("target: connection is nil")
@@ -30,6 +28,7 @@ func (writer *Writer) RunReceiver(ctx context.Context, conn net.Conn, cfg Runtim
 	if writer == nil || writer.db == nil {
 		return errors.New("target: writer is not initialized")
 	}
+	// Currently only looking at uncompressed batches
 	if cfg.Network.Compression != network.CompressionNone {
 		return errors.New("target: MVP receiver requires uncompressed batches")
 	}
@@ -45,10 +44,14 @@ func (writer *Writer) RunReceiver(ctx context.Context, conn net.Conn, cfg Runtim
 	if err != nil {
 		return fmt.Errorf("target: negotiate transfer: %w", err)
 	}
+	
+	// Create pool of reusable buffrs
 	p, err := pool.New(pool.Config{NumBuffers: cfg.NumBuffers, PayloadCap: accepted.PayloadCap})
 	if err != nil {
 		return fmt.Errorf("target: create buffer pool: %w", err)
 	}
+	
+	// Waiting line for IDs of filled buffers
 	output, err := queue.New(cfg.QueueCapacity)
 	if err != nil {
 		return fmt.Errorf("target: create received-buffer queue: %w", err)
@@ -56,18 +59,22 @@ func (writer *Writer) RunReceiver(ctx context.Context, conn net.Conn, cfg Runtim
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	
+	// To report when receiver + writer are done
 	receiveDone := make(chan error, 1)
 	consumeDone := make(chan error, 1)
+	// Read batches from connection
 	go func() { receiveDone <- network.Receive(runCtx, conn, p, output, accepted) }()
+	// Takes buffer ids, reads batch, writes to postgres
 	go func() { consumeDone <- writer.Consume(runCtx, p, output) }()
 
 	var receiveErr, consumeErr error
 	select {
 	case receiveErr = <-receiveDone:
-		close(output)
+		close(output) // Close the queue
 		consumeErr = <-consumeDone
 	case consumeErr = <-consumeDone:
-		// A consumer can finish before END only when it fails. Stop socket I/O so
+		// Should not happen unless db error. Stop socket I/O so
 		// a blocked receiver cannot strand the coordinator or its buffers.
 		if consumeErr == nil {
 			consumeErr = errors.New("target: consumer stopped before receive completed")
@@ -77,7 +84,9 @@ func (writer *Writer) RunReceiver(ctx context.Context, conn net.Conn, cfg Runtim
 		receiveErr = <-receiveDone
 		close(output)
 	}
+	
 	cancel()
+	// Release those still waiting in queue
 	if receiveErr != nil || consumeErr != nil {
 		_ = conn.Close()
 		for id := range output {
