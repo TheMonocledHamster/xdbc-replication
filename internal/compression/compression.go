@@ -3,14 +3,15 @@ package compression
 import (
 	"fmt"
 
+	"github.com/TheMonocledHamster/xdbc-replication/internal/protocol"
 	"github.com/golang/snappy"
 )
 
-type Compression uint8
+type Compression = protocol.Compression
 
 const (
-	None   Compression = 0
-	Snappy Compression = 1
+	None   = protocol.CompressionNone
+	Snappy = protocol.CompressionSnappy
 )
 
 type Codec interface {

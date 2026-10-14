@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"github.com/TheMonocledHamster/xdbc-replication/internal/protocol"
 )
 
 const (
@@ -22,17 +24,17 @@ const (
 	MessageError    MessageType = 5
 )
 
-type Compression uint8
+type Compression = protocol.Compression
 
 const (
-	CompressionNone   Compression = 0
-	CompressionSnappy Compression = 1
+	CompressionNone   = protocol.CompressionNone
+	CompressionSnappy = protocol.CompressionSnappy
 )
 
-type Format uint8
+type Format = protocol.Format
 
 const (
-	FormatRow Format = 0
+	FormatRow = protocol.FormatRow
 )
 
 type Header struct {
