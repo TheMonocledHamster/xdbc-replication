@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -79,10 +80,19 @@ func TestCheckID(t *testing.T) {
 	}
 
 	for i := range 2 {
-		err = pool.checkID(i)
+		bufID, acqErr := pool.Acquire(context.Background())
+		if acqErr != nil {
+			pool.Release(bufID)
+			t.Fatal(acqErr)
+		}
+
+		err = pool.checkID(bufID)
 		if err != nil {
+			pool.Release(bufID)
 			t.Fatalf("Expected no error for checking ID for buffer #%d, but got an error: %s", i, err)
 		}
+
+		pool.Release(bufID)
 	}
 
 	if pool.checkID(-1) == nil {
@@ -91,6 +101,11 @@ func TestCheckID(t *testing.T) {
 
 	if pool.checkID(3) == nil {
 		t.Fatal("Expected an error for checking ID for buffer #3 (beyond num buffers), but got no error")
+	}
+
+	// Check to see if we get an error on a buffer we don't own
+	if pool.checkID(1) == nil {
+		t.Fatal("Expected an error for checking ID for an unowned buffer, but got no error")
 	}
 }
 
@@ -223,5 +238,31 @@ func TestBufferAccess(t *testing.T) {
 	}
 	if err := p.Release(id); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDoubleRelease(t *testing.T) {
+	cfg := Config{NumBuffers: 1, PayloadCap: 250}
+	pool, err := New(cfg)
+
+	if err != nil {
+		t.Fatalf("Encountered unexpected error from initializing a pool: %s", err)
+	}
+
+	ctx := context.Background()
+	id, acqErr := pool.Acquire(ctx)
+	if acqErr != nil {
+		t.Fatalf("Encountered unexpected error from acquiring a buffer: %s", acqErr)
+	}
+
+	relErr := pool.Release(id)
+	if relErr != nil {
+		t.Fatalf("Encountered unexpected error from releasing a buffer: %s", relErr)
+	}
+
+	// Attempting double release
+	relErr2 := pool.Release(id)
+	if relErr2 == nil || strings.Compare(relErr2.Error(), "Attempted double-release of buffer") != 0 {
+		t.Fatalf("Expected error of 'Attempted double-release of buffer', got %s", relErr2)
 	}
 }

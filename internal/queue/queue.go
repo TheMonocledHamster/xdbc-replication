@@ -11,13 +11,13 @@ import (
 
 type Queue chan int
 
-func New(capacity int) (*Queue, error) {
+func New(capacity int) (Queue, error) {
 	if capacity < 1 {
 		return nil, errors.New("Queue capacity must be >= 1. Duh.")
 	}
 
 	queue := Queue(make(chan int, capacity))
-	return &queue, nil
+	return queue, nil
 }
 
 // Pushes a buffer ID into the queue to be used however a stage wants to

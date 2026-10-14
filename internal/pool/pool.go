@@ -52,10 +52,14 @@ func New(cfg Config) (*Pool, error) {
 	return p, nil
 }
 
-// Sanity check if the buffer ID is a valid ID for the pool
+// Sanity check if the buffer ID is a valid ID for the pool and is free
 func (p *Pool) checkID(id int) error {
 	if id < 0 || int(id) >= len(p.used) {
-		return errors.New("Invalid buffer ID")
+		return errors.New("Invalid buffer ID: ID outside range 0 - (NumBufs-1)")
+	}
+
+	if !(p.used[id].Load()) {
+		return errors.New("Invalid buffer ID: Buffer is currently not used/acquired")
 	}
 	return nil
 }
@@ -89,13 +93,15 @@ func (p *Pool) Acquire(ctx context.Context) (int, error) {
 	// Block until we have a free buffer
 	select {
 	case id := <-p.free:
+		p.used[id].Store(true)
 		buf, err := p.Buffer(id)
 		if err != nil {
+			p.used[id].Store(false)
+			p.free <- id
 			return 0, err
 		}
 		// Header cleanup and accounting before providing the buffer to the worker
 		clear(buf[:HeaderSize])
-		p.used[id].Store(true)
 		return id, nil
 	case <-ctx.Done():
 		return 0, ctx.Err()
@@ -103,18 +109,18 @@ func (p *Pool) Acquire(ctx context.Context) (int, error) {
 }
 
 func (p *Pool) Release(id int) error {
-	// Make sure the buffer being released even exists
-	iderr := p.checkID(id)
-	if iderr != nil {
-		return iderr
+	// Check if the buffer ID is even meaningful
+	if id < 0 || id >= len(p.used) {
+		return errors.New("Invalid buffer ID: ID outside range 0 - (NumBufs-1)")
 	}
 
-	// Wait for the buffer ID to be loaded back into the free list
-	select {
-	case p.free <- id:
-		p.used[id].Store(false)
-		return nil
-	default:
-		return errors.New("Something bad happened in Release(), possibly a double release")
+	// Only update used if we know that it is currently in use
+	if !p.used[id].CompareAndSwap(true, false) {
+		return errors.New("Attempted double-release of buffer")
 	}
+
+	// "used" value for ID guaranteed to be false, now put back into free list
+	p.free <- id
+
+	return nil
 }
