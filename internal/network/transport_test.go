@@ -30,7 +30,7 @@ func testQueue(t *testing.T, capacity int) queue.Queue {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return *q
+	return q
 }
 
 func testContext(t *testing.T) context.Context {
