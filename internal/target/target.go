@@ -1,40 +1,36 @@
-// Package target loads decoded XDBC batches into a PostgreSQL relation.
-//
-// The MVP payload format is newline-delimited JSON: each line is a JSON array
-// containing one row's values, in the configured column order. JSON null maps
-// to SQL NULL. 
+// Package target loads row-format XDBC batches into a PostgreSQL relation.
+// The destination fields must match the ordered schema used to encode rows.
 package target
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"regexp"
 	"strings"
 
+	"github.com/TheMonocledHamster/xdbc-replication/internal/format/row"
 	"github.com/TheMonocledHamster/xdbc-replication/internal/pool"
 	"github.com/TheMonocledHamster/xdbc-replication/internal/queue"
 )
 
-// Config describes the destination relation. Identifiers are validated and
-// quoted before being included in SQL
+// Config describes the destination relation and the ordered row schema. The
+// field names are PostgreSQL column names; types and sizes define the incoming
+// binary row layout shared with the source.
 type Config struct {
-	Schema  string
-	Table   string
-	Columns []string // Names and order of cols to fill
+	Schema string
+	Table  string
+	Fields []row.Field
 }
 
-// Writer inserts decoded row batches into PostgreSQL using database/sql.
-// The caller supplies a PostgreSQL driver when opening the *sql.DB.
+// Writer copies decoded row-format batches into PostgreSQL using COPY FROM STDIN.
 type Writer struct {
 	db        *sql.DB
 	statement string
-	width     int
+	layout    *row.Layout
+	fields    []row.Field
 }
 
 var identifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -51,79 +47,39 @@ func New(db *sql.DB, cfg Config) (*Writer, error) {
 	if cfg.Schema != "" && !identifier.MatchString(cfg.Schema) {
 		return nil, fmt.Errorf("target: invalid schema name %q", cfg.Schema)
 	}
-	if len(cfg.Columns) == 0 {
-		return nil, errors.New("target: at least one column is required")
+	layout, err := row.NewLayout(cfg.Fields)
+	if err != nil {
+		return nil, fmt.Errorf("target: invalid row schema: %w", err)
 	}
-	
-	// Columns to be added to table.
-	// Using quotes to keep name consistent with casing / special chars
-	// Ie. CustomerName != customername
-	quotedColumns := make([]string, len(cfg.Columns))
-	for i, column := range cfg.Columns {
-		if !identifier.MatchString(column) {
-			return nil, fmt.Errorf("target: invalid column name %q", column)
+	quotedColumns := make([]string, len(cfg.Fields))
+	for i, field := range cfg.Fields {
+		if !identifier.MatchString(field.Name) {
+			return nil, fmt.Errorf("target: invalid column name %q", field.Name)
 		}
-		quotedColumns[i] = `"` + column + `"`
+		quotedColumns[i] = `"` + field.Name + `"`
 	}
 	relation := `"` + cfg.Table + `"`
 	if cfg.Schema != "" {
 		relation = `"` + cfg.Schema + `".` + relation
 	}
-	placeholders := make([]string, len(cfg.Columns))
-	for i := range placeholders {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-	}
-	
-	// ie. INSERT INTO "customers" ("customer_name", "phone", "city")
-  // VALUES ($1, $2, $3)
 	return &Writer{
-		db: db, width: len(cfg.Columns),
-		statement: "INSERT INTO " + relation + " (" + strings.Join(quotedColumns, ", ") + ") VALUES (" + strings.Join(placeholders, ", ") + ")",
+		db: db, layout: layout, fields: append([]row.Field(nil), cfg.Fields...),
+		statement: "COPY " + relation + " (" + strings.Join(quotedColumns, ", ") + ") FROM STDIN",
 	}, nil
 }
 
-// Validate and insert recordCount rows from payload as a single transaction. 
-// A malformed row or SQL error rolls the whole batch back.
+// WriteBatch validates and copies recordCount fixed-width rows as one
+// transaction. A malformed payload or COPY error rolls the batch back.
 func (w *Writer) WriteBatch(ctx context.Context, payload []byte, recordCount uint32) error {
-	if w == nil || w.db == nil {
+	if w == nil || w.db == nil || w.layout == nil {
 		return errors.New("target: writer is not initialized")
 	}
+	if err := w.layout.ValidatePayload(payload, recordCount); err != nil {
+		return fmt.Errorf("target: invalid row payload: %w", err)
+	}
 	if recordCount == 0 {
-		if len(bytes.TrimSpace(payload)) != 0 {
-			return errors.New("target: non-empty payload has zero records")
-		}
 		return nil
 	}
-	rows := make([][]any, 0, recordCount)
-	scanner := bufio.NewScanner(bytes.NewReader(payload))
-	
-	// Scanner's default 64 KiB limit is too small for legitimate wide rows.
-	scanner.Buffer(make([]byte, 64*1024), 64*1024*1024)
-	for scanner.Scan() {
-	  // Remove white space
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			return errors.New("target: empty row in payload")
-		}
-		
-		// Decoding row
-		var row []any
-		if err := json.Unmarshal(line, &row); err != nil {
-			return fmt.Errorf("target: decode row %d: %w", len(rows)+1, err)
-		}
-		// Must match num of columns
-		if len(row) != w.width {
-			return fmt.Errorf("target: row %d has %d values; want %d", len(rows)+1, len(row), w.width)
-		}
-		rows = append(rows, row)
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("target: read payload: %w", err)
-	}
-	if uint64(len(rows)) != uint64(recordCount) {
-		return fmt.Errorf("target: payload has %d rows; header declares %d", len(rows), recordCount)
-	}
-  
 	tx, err := w.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("target: begin transaction: %w", err)
@@ -131,20 +87,71 @@ func (w *Writer) WriteBatch(ctx context.Context, payload []byte, recordCount uin
 	defer tx.Rollback()
 	stmt, err := tx.PrepareContext(ctx, w.statement)
 	if err != nil {
-		return fmt.Errorf("target: prepare insert: %w", err)
+		return fmt.Errorf("target: prepare COPY: %w", err)
 	}
-	defer stmt.Close()
-	// Run insert once per row
-	for i, row := range rows {
-		if _, err := stmt.ExecContext(ctx, row...); err != nil {
-			return fmt.Errorf("target: insert row %d: %w", i+1, err)
+	for i := 0; i < int(recordCount); i++ {
+		encoded, err := w.layout.RowAt(payload, i)
+		if err != nil {
+			_ = stmt.Close()
+			return fmt.Errorf("target: read row %d: %w", i+1, err)
+		}
+		values, err := w.decodeRow(encoded)
+		if err != nil {
+			_ = stmt.Close()
+			return fmt.Errorf("target: decode row %d: %w", i+1, err)
+		}
+		if _, err := stmt.ExecContext(ctx, values...); err != nil {
+			_ = stmt.Close()
+			return fmt.Errorf("target: COPY row %d: %w", i+1, err)
 		}
 	}
-	// Commit transcation after all rows succeeded
+	// lib/pq flushes COPY data when Exec is called with no arguments.
+	if _, err := stmt.ExecContext(ctx); err != nil {
+		_ = stmt.Close()
+		return fmt.Errorf("target: finish COPY: %w", err)
+	}
+	if err := stmt.Close(); err != nil {
+		return fmt.Errorf("target: close COPY: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("target: commit batch: %w", err)
 	}
 	return nil
+}
+
+func (w *Writer) decodeRow(encoded []byte) ([]any, error) {
+	values := make([]any, len(w.fields))
+	for i, field := range w.fields {
+		switch field.Type {
+		case row.Int32:
+			v, err := w.layout.GetInt32(encoded, i)
+			if err != nil {
+				return nil, err
+			}
+			values[i] = v
+		case row.Double:
+			v, err := w.layout.GetDouble(encoded, i)
+			if err != nil {
+				return nil, err
+			}
+			values[i] = v
+		case row.Char:
+			v, err := w.layout.GetChar(encoded, i)
+			if err != nil {
+				return nil, err
+			}
+			values[i] = string([]byte{v})
+		case row.String:
+			v, err := w.layout.GetString(encoded, i)
+			if err != nil {
+				return nil, err
+			}
+			values[i] = v
+		default:
+			return nil, fmt.Errorf("unsupported field type %q", field.Type)
+		}
+	}
+	return values, nil
 }
 
 // Consume reads buffer IDs from the downstream queue, writes each uncompressed

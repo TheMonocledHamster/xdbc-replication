@@ -1,18 +1,18 @@
-# XDBC-Go PostgreSQL Target Implementation V1
+# PostgreSQL Target V1
 
-## Functionality Provided
+## Functionality
 
-- `OpenPostgres(ctx, connectionString)` opens and verifies a PostgreSQL connection using `lib/pq`
-- `New(db, Config)` configures the destination schema, table, and columns
-- `WriteBatch(ctx, payload, recordCount)` decodes newline-delimited JSON rows and inserts each batch in a transaction
-- `Consume(ctx, pool, queue)` writes received, uncompressed buffers and releases them for reuse
-- `RunReceiver(ctx, conn, writer, config)` coordinates the network handshake, receive queue, and target writer
+- `New(db, Config)` validates the destination and shared ordered row schema.
+- `WriteBatch(ctx, payload, recordCount)` validates fixed-width tuples and loads a batch with PostgreSQL `COPY FROM STDIN` in one transaction.
+- `Consume(ctx, pool, queue)` consumes uncompressed row-format buffers, writes them, and releases them for reuse.
+- `OpenPostgres(ctx, connectionString)` opens and verifies a PostgreSQL connection using `lib/pq`.
 
-## MVP Assumptions
+## Assumptions
 
-- Payload rows use newline-delimited JSON arrays, in destination column order
-- Batches are uncompressed and use `FormatRow`
-- The destination table already exists with matching columns and types
-- Snappy decompression and table creation are not handled by this package yet
+- The source and target use the same `internal/format/row` schema and field order.
+- The target table already exists with compatible PostgreSQL columns. This package does not create tables.
+- V1 supports `INT`, `DOUBLE`, `CHAR`, and fixed-width `STRING`; the row format has no NULL representation.
+- Buffers must be decompressed before `Consume` receives them.
+- The pipeline coordinator owns network setup, buffer-pool and queue creation, and closes the queue after receivers finish.
 
-Tests cover batch validation, inserts and rollback with a fake database, buffer release, and a network-to-target transfer.
+Tests cover schema and payload validation, COPY transaction behavior, and buffer release.
