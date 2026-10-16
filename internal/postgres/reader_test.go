@@ -15,9 +15,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Override this address with XDBC_TEST_DATABASE_URL when needed.
-const defaultTestDB = "postgres://localhost:5432/xdbc_test?sslmode=disable"
-
 type testRow struct {
 	id   int32
 	name string
@@ -89,10 +86,10 @@ func checkReader(t *testing.T, input []testRow, payloadCap int, expectedCounts [
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// INPUT: Connect and create this test's own temporary PostgreSQL data.
+	// INPUT: Connect to the configured PostgreSQL database and create a temporary test table.
 	url := os.Getenv("XDBC_TEST_DATABASE_URL")
 	if url == "" {
-		url = defaultTestDB
+		t.Skip("Set XDBC_TEST_DATABASE_URL to run PostgreSQL integration tests")
 	}
 	conn, err := pgx.Connect(ctx, url)
 	if err != nil {
