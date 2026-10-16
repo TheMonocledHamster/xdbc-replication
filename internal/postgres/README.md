@@ -22,7 +22,7 @@ Run the reader tests:
 make test-postgres
 ```
 
-The tests connect to PostgreSQL inside Docker at `localhost:5433`, using the `xdbc_test` database.
+By default, the tests connect to PostgreSQL inside Docker at `localhost:5433`, using the `xdbc_test` database.
 
 Each test creates its own temporary table and inserts test data, so no manual table creation or dataset import is required.
 
@@ -30,6 +30,16 @@ To see individual test results:
 
 ```bash
 make test-postgres GOFLAGS=-v
+```
+
+## Running Tests with a Custom Port
+The Makefile automatically detects PostgreSQL's Docker host port.
+
+To use a different port:
+
+```bash
+POSTGRES_PORT=5544 docker compose up -d
+make test-postgres
 ```
 
 ## Stopping PostgreSQL
