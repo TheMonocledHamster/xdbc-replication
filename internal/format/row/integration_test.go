@@ -88,7 +88,7 @@ func TestPoolCompressionRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, codec := range []compression.Codec{compression.NoneCodec{}, compression.SnappyCodec{}} {
+	for _, codec := range []compression.Codec{compression.SnappyCodec{}} {
 		t.Run(fmt.Sprint(codec.ID()), func(t *testing.T) {
 			const count = 3
 			used := count * layout.RowSize()

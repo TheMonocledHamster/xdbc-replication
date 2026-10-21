@@ -2,6 +2,7 @@ package compression
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/TheMonocledHamster/xdbc-replication/internal/protocol"
 	"github.com/golang/snappy"
@@ -23,40 +24,11 @@ type Codec interface {
 
 func ByID(id Compression) (Codec, error) {
 	switch id {
-	case None:
-		return NoneCodec{}, nil
 	case Snappy:
 		return SnappyCodec{}, nil
 	}
 	return nil, fmt.Errorf("unknown compression type %d", id)
 }
-
-/*
-********************
-NONE / UNCOMPRESSED
-********************
-*/
-
-type NoneCodec struct{}
-
-func (NoneCodec) ID() Compression         { return None }
-func (NoneCodec) MaxEncodedLen(n int) int { return n }
-
-// Effectively just a fancy wrapper for a data copy
-// Could make this some kind of buffer ID transfer thing, but too lazy
-func (NoneCodec) Compress(dst, src []byte) (int, error) {
-	// Make sure the provided dst buffer can accept the input
-	if len(dst) < len(src) {
-		return 0, fmt.Errorf("none compression codec: dst too small (%d < %d)", len(dst), len(src))
-	}
-
-	// Copy the data on over
-	return copy(dst, src), nil
-}
-
-// Effectively just a fancy wrapper for a data copy
-// Could make this some kind of buffer ID transfer thing, but too lazy
-func (NoneCodec) Decompress(dst, src []byte) (int, error) { return NoneCodec{}.Compress(dst, src) }
 
 /*
 ********************
@@ -73,7 +45,7 @@ func (SnappyCodec) MaxEncodedLen(n int) int { return snappy.MaxEncodedLen(n) }
 func (SnappyCodec) Compress(dst, src []byte) (int, error) {
 	// Have to ensure dst fits the data, otherwise snappy makes a new slice
 	if requiredDstSize := snappy.MaxEncodedLen(len(src)); requiredDstSize < 0 || len(dst) < requiredDstSize {
-		return 0, fmt.Errorf("snappy compression: dst too small (%d < %d)", len(dst), requiredDstSize)
+		return 0, io.ErrShortBuffer
 	}
 
 	// Take it away, Snappy!
@@ -90,7 +62,7 @@ func (SnappyCodec) Decompress(dst, src []byte) (int, error) {
 		return 0, fmt.Errorf("snappy decompression: %w", err)
 	}
 	if decodedLength > len(dst) { // Decode would make a new slice, not ideal!
-		return 0, fmt.Errorf("snappy decompression: decoded size %d exceeds dst %d", decodedLength, len(dst))
+		return 0, io.ErrShortBuffer
 	}
 
 	// Checks are good, let Snappy decompress src into dst
