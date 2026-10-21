@@ -23,28 +23,28 @@ type testRow struct {
 //CURRENT TESTS
 
 func TestEmpty(t *testing.T) {
-	// INPUT: 0 rows, 24-byte payloads.
+	// INPUT: 0 rows, two-row payloads.
 	// EXPECTED OUTPUT: No queued buffers and no decoded rows.
-	checkReader(t, nil, 24, nil)
+	checkReader(t, nil, 2*readerRowSize(t), nil)
 }
 
 func TestSmall001(t *testing.T) {
-	// INPUT: (7, Ada), (8, Lin); 24-byte payloads.
+	// INPUT: (7, Ada), (8, Lin); two-row payloads.
 	// EXPECTED OUTPUT: One buffer containing both rows.
-	checkReader(t, []testRow{{7, "Ada"}, {8, "Lin"}}, 24, []int{2})
+	checkReader(t, []testRow{{7, "Ada"}, {8, "Lin"}}, 2*readerRowSize(t), []int{2})
 }
 
 func TestSmall002(t *testing.T) {
-	// INPUT: Five rows; 24-byte payloads.
+	// INPUT: Five rows; two-row payloads.
 	// EXPECTED OUTPUT: Three buffers containing 2, 2, and 1 rows.
 	checkReader(t, []testRow{
 		{1, "One"}, {2, "Two"}, {3, "Three"}, {4, "Four"}, {5, "Five"},
-	}, 24, []int{2, 2, 1})
+	}, 2*readerRowSize(t), []int{2, 2, 1})
 }
 
 func TestSmall003(t *testing.T) {
-	// INPUT: 20 rows, each 12 bytes.
-	//        Test every payload capacity from 12 to 120 bytes.
+	// INPUT: 20 rows, using layout-derived sizes.
+	//        Test every payload capacity from one through ten rows.
 	// EXPECTED OUTPUT: All 20 rows preserved, with correct buffer counts
 	//                  and contents for every payload size.
 
@@ -56,9 +56,10 @@ func TestSmall003(t *testing.T) {
 		}
 	}
 
-	// RUN: Test all 109 valid payload capacities.
-	for payloadCap := 12; payloadCap <= 120; payloadCap++ {
-		rowsPerBuffer := payloadCap / 12
+	// RUN: Test all valid payload capacities across the selected range.
+	rowSize := readerRowSize(t)
+	for payloadCap := rowSize; payloadCap <= 10*rowSize; payloadCap++ {
+		rowsPerBuffer := payloadCap / rowSize
 
 		// EXPECTED: Number of rows in each output buffer.
 		var expectedBuffers []int
@@ -74,7 +75,7 @@ func TestSmall003(t *testing.T) {
 		checkReader(t, rows, payloadCap, expectedBuffers)
 	}
 
-	t.Log("PASS: all 109 payload sizes (12–120 bytes), 20 rows each")
+	t.Log("PASS: all layout-derived payload capacities, 20 rows each")
 }
 
 //BOILERPLATE
@@ -198,4 +199,13 @@ func checkReader(t *testing.T, input []testRow, payloadCap int, expectedCounts [
 		t.Fatalf("got %d rows in %d buffers; want %d rows in %d buffers",
 			rowIndex, bufferIndex, len(input), len(expectedCounts))
 	}
+}
+
+func readerRowSize(t *testing.T) int {
+	t.Helper()
+	layout, err := row.NewLayout([]row.Field{{Name: "id", Type: row.Int32, Size: 4}, {Name: "name", Type: row.String, Size: 8}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return layout.RowSize()
 }

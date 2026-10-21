@@ -27,6 +27,11 @@ The frame header is exactly 16 bytes.
 The implementation is in `internal/network`, with Go package name `network`.
 It follows the TCP send/receive stages and buffer-ID queues in the reference paper.
 
+The current row payload includes a per-row NULL bitmap; see [row-v1.md](row-v1.md).
+Its replacement of the earlier bitmap-free layout requires both peers to upgrade
+together. The frame header and `FormatRow` ID have not changed, and the handshake
+does not detect an old row-layout implementation.
+
 ## Handshake
 
 The client sends HELLO; the server replies with HELLO_ACK after validating the

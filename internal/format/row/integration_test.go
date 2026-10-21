@@ -1,8 +1,10 @@
 package row_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/TheMonocledHamster/xdbc-replication/internal/compression"
@@ -24,7 +26,7 @@ func exampleRows() error {
 	if err != nil {
 		return err
 	}
-	p, err := pool.New(pool.Config{NumBuffers: 1, PayloadCap: 25})
+	p, err := pool.New(pool.Config{NumBuffers: 1, PayloadCap: 2*layout.RowSize() + 1})
 	if err != nil {
 		return err
 	}
@@ -84,7 +86,13 @@ func exampleRows() error {
 }
 
 func TestPoolCompressionRoundTrip(t *testing.T) {
-	layout, err := row.NewLayout([]row.Field{{Name: "id", Type: row.Int32, Size: 4}, {Name: "name", Type: row.String, Size: 8}})
+	layout, err := row.NewLayout([]row.Field{
+		{Name: "id", Type: row.Int32, Size: 4}, {Name: "name", Type: row.String, Size: 8},
+		{Name: "big", Type: row.Int64, Size: 8}, {Name: "decimal", Type: row.Numeric, Size: 48},
+		{Name: "day", Type: row.Date, Size: 4}, {Name: "ts", Type: row.Timestamp, Size: 8},
+		{Name: "tz", Type: row.TimestampTZ, Size: 8}, {Name: "bool", Type: row.Bool, Size: 1},
+		{Name: "real", Type: row.Real, Size: 4}, {Name: "small", Type: row.Int16, Size: 2},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,6 +129,27 @@ func TestPoolCompressionRoundTrip(t *testing.T) {
 				if err := layout.PutString(record, 1, fmt.Sprintf("row%d", i)); err != nil {
 					t.Fatal(err)
 				}
+				writes := []func() error{
+					func() error { return layout.PutInt64(record, 2, math.MaxInt64) },
+					func() error { return layout.PutNumeric(record, 3, "9007199254740993.000100") },
+					func() error { return layout.PutDate(record, 4, -1) },
+					func() error { return layout.PutTimestamp(record, 5, -100001) },
+					func() error { return layout.PutTimestampTZ(record, 6, row.TimestampInfinity) },
+					func() error { return layout.PutBool(record, 7, false) },
+					func() error { return layout.PutReal(record, 8, math.Float32frombits(0x7fc00042)) },
+					func() error { return layout.PutInt16(record, 9, math.MinInt16) },
+				}
+				for j, write := range writes {
+					var err error
+					if i == 1 {
+						err = layout.PutNull(record, j+2)
+					} else {
+						err = write()
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
 			}
 			original := pool.BufferHeader{Seq: 9, NextRecord: 12, RecordCount: count, PayloadLen: uint32(used), UncompressedLen: uint32(used)}
 			original.Encode(source)
@@ -156,6 +185,9 @@ func TestPoolCompressionRoundTrip(t *testing.T) {
 				t.Fatal("decoded length mismatch")
 			}
 			decoded := decodedBuffer[pool.HeaderSize : pool.HeaderSize+decodedLen]
+			if !bytes.Equal(decoded, payload) {
+				t.Fatal("compression changed nullable scalar bytes")
+			}
 			if err := layout.ValidatePayload(decoded, wireHeader.RecordCount); err != nil {
 				t.Fatal(err)
 			}
