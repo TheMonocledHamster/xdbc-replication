@@ -1,14 +1,84 @@
+x-app: &app
+  image: xdbc-replication:local
+  build: .
+  environment: &app-env
+    CONFIG_PATH: testdata/iot/transfer.json
+    COMPRESSION: ${COMPRESSION:-none}
+  init: true
+  healthcheck:
+    test: ["CMD", "harness", "health"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+
+x-postgres: &postgres
+  image: postgres:17
+  environment:
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DB: xdbc_test
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U postgres -d xdbc_test"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+
 services:
-  postgres:
-    image: postgres:17
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: xdbc_test
+  source-db:
+    <<: *postgres
     ports:
-      - "${POSTGRES_PORT:-5433}:5432"
+      - "127.0.0.1:${SOURCE_POSTGRES_PORT:-5433}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - source_data:/var/lib/postgresql/data
+
+  target-db:
+    <<: *postgres
+    ports:
+      - "127.0.0.1:${TARGET_POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - target_data:/var/lib/postgresql/data
+
+  server:
+    <<: *app
+    command: ["server"]
+    environment:
+      <<: *app-env
+      DATABASE_URL: postgres://postgres:postgres@source-db:5432/xdbc_test?sslmode=disable
+      CLIENT_URL: http://localhost:8080
+    depends_on:
+      source-db:
+        condition: service_healthy
+
+  client:
+    <<: *app
+    command: ["client"]
+    environment:
+      <<: *app-env
+      DATABASE_URL: postgres://postgres:postgres@target-db:5432/xdbc_test?sslmode=disable
+      SERVER_ADDR: server:9000
+      CLIENT_URL: http://localhost:8080
+    ports:
+      - "127.0.0.1:${CLIENT_PORT:-8080}:8080"
+    depends_on:
+      target-db:
+        condition: service_healthy
+      server:
+        condition: service_healthy
+
+  tools:
+    <<: *app
+    profiles: ["tools"]
+    entrypoint: ["harness"]
+    command: ["verify"]
+    healthcheck:
+      disable: true
+    environment:
+      <<: *app-env
+      SOURCE_DATABASE_URL: postgres://postgres:postgres@source-db:5432/xdbc_test?sslmode=disable
+      TARGET_DATABASE_URL: postgres://postgres:postgres@target-db:5432/xdbc_test?sslmode=disable
+      CLIENT_URL: http://client:8080
+      SERVER_URL: http://server:8080
 
 volumes:
-  postgres_data:
+  source_data:
+  target_data:

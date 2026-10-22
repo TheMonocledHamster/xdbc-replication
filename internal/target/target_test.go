@@ -268,3 +268,47 @@ func TestConsumeRejectsCompressedBatchAndReleasesBuffer(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestWriteBatchDistinguishesNullFromZero(t *testing.T) {
+	w, state := newTestWriter(t)
+	payload := encodedRows(t, struct {
+		id   int32
+		name string
+	}{0, ""}, struct {
+		id   int32
+		name string
+	}{9, "unused"})
+	record, err := w.layout.RowAt(payload, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for col := range testFields {
+		if err := w.layout.PutNull(record, col); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.WriteBatch(context.Background(), payload, 2); err != nil {
+		t.Fatal(err)
+	}
+	if want := [][]driver.Value{{int64(0), ""}, {nil, nil}}; !reflect.DeepEqual(state.rows, want) {
+		t.Fatalf("copied rows: %#v, want %#v", state.rows, want)
+	}
+}
+
+func TestWriteBatchRollsBackMalformedScalar(t *testing.T) {
+	state := &fakeDB{}
+	db := sql.OpenDB(fakeConnector{state})
+	defer db.Close()
+	w, err := New(db, Config{Table: "t", Fields: []rowfmt.Field{{Name: "flag", Type: rowfmt.Bool, Size: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One bitmap byte, then an invalid non-NULL BOOLEAN slot.
+	err = w.WriteBatch(context.Background(), []byte{0, 2}, 1)
+	if err == nil || !strings.Contains(err.Error(), "column 0 (flag)") {
+		t.Fatalf("missing field context: %v", err)
+	}
+	if state.rollback != 1 || state.commit != 0 {
+		t.Fatalf("malformed scalar was not rolled back: %+v", state)
+	}
+}

@@ -119,41 +119,6 @@ func (w *Writer) WriteBatch(ctx context.Context, payload []byte, recordCount uin
 	return nil
 }
 
-func (w *Writer) decodeRow(encoded []byte) ([]any, error) {
-	values := make([]any, len(w.fields))
-	for i, field := range w.fields {
-		switch field.Type {
-		case row.Int32:
-			v, err := w.layout.GetInt32(encoded, i)
-			if err != nil {
-				return nil, err
-			}
-			values[i] = v
-		case row.Double:
-			v, err := w.layout.GetDouble(encoded, i)
-			if err != nil {
-				return nil, err
-			}
-			values[i] = v
-		case row.Char:
-			v, err := w.layout.GetChar(encoded, i)
-			if err != nil {
-				return nil, err
-			}
-			values[i] = string([]byte{v})
-		case row.String:
-			v, err := w.layout.GetString(encoded, i)
-			if err != nil {
-				return nil, err
-			}
-			values[i] = v
-		default:
-			return nil, fmt.Errorf("unsupported field type %q", field.Type)
-		}
-	}
-	return values, nil
-}
-
 // Consume reads buffer IDs from the downstream queue, writes each uncompressed
 // row-format payload to PostgreSQL, and releases every buffer after processing.
 func (w *Writer) Consume(ctx context.Context, p *pool.Pool, input queue.Queue) error {
@@ -161,7 +126,7 @@ func (w *Writer) Consume(ctx context.Context, p *pool.Pool, input queue.Queue) e
 		return errors.New("target: pool is nil")
 	}
 	for {
-	  // Pick new buffer id from queue
+		// Pick new buffer id from queue
 		id, err := input.Pop(ctx)
 		if errors.Is(err, io.EOF) {
 			return nil
@@ -188,7 +153,7 @@ func (w *Writer) consumeBuffer(ctx context.Context, p *pool.Pool, id int) error 
 	if len(b) < pool.HeaderSize {
 		return errors.New("target: buffer is shorter than its header")
 	}
-	
+
 	h := pool.DecodeHeader(b)
 	if uint64(h.PayloadLen) > uint64(p.PayloadCap()) {
 		return fmt.Errorf("target: buffer %d payload length %d exceeds capacity %d", id, h.PayloadLen, p.PayloadCap())
@@ -199,7 +164,7 @@ func (w *Writer) consumeBuffer(ctx context.Context, p *pool.Pool, id int) error 
 	if h.UncompressedLen != h.PayloadLen {
 		return fmt.Errorf("target: buffer %d uncompressed length does not match payload length", id)
 	}
-	
+
 	end := pool.HeaderSize + int(h.PayloadLen)
 	return w.WriteBatch(ctx, b[pool.HeaderSize:end], h.RecordCount)
 }

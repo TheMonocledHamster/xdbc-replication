@@ -1,97 +1,62 @@
 # Fixed-width row format
 
-`internal/format/row` encodes one row as a NULL bitmap followed by fixed-width
-field slots in schema order. There is no alignment padding. Both peers configure
-an identical ordered `[]row.Field{Name, Type, Size}`; the schema is not sent by the
-network handshake. `Layout.Fields()` returns a defensive copy of that schema.
+`internal/format/row` stores each row as a NULL bitmap followed by fixed-width field slots, in schema order, with no alignment padding.
 
-## NULL representation
+```text
+row = NULL bitmap | field 0 | field 1 | ...
+batch payload = row 0 | row 1 | ...
+```
 
-The bitmap occupies `ceil(columnCount / 8)` bytes. Column `i` uses bit `i % 8`
-of byte `i / 8` (least significant bit first): **1 is NULL**, 0 is non-NULL.
-All columns can contain NULL. Unused bitmap bits are zero in initialized rows.
-`RowSize()` includes the bitmap and all field slots.
+Build a `Layout` with `NewLayout([]row.Field{Name, Type, Size})`. Both peers must use the same ordered fields and widths; the handshake does not exchange schemas. `Fields()` returns a copy of the schema.
 
-- `PutNull(record, col)` sets the NULL bit and clears that column's slot.
-- `IsNull(record, col)` checks validity independently of the stored value.
-- Typed getters return `ErrNull` for NULL (`errors.Is(err, row.ErrNull)`).
-- Successful typed writes clear their column's NULL bit. Rejected writes leave
-  the entire record unchanged, including the bitmap.
-- Clear each record before writing it, particularly when recycling a pooled
-  buffer. A zeroed bitmap means all fields are non-NULL; write every column or
-  explicitly call `PutNull` for it.
+## Field encodings
 
-NULL is distinct from integer zero, false, empty string, floating-point NaN,
-and NUMERIC NaN. NULL slots retain their fixed width, so row offsets and payload
-validation do not depend on values.
+| Go constant | Config type | Bytes | Getter/setter value |
+|---|---|---|---|
+| `Int16` | `SMALLINT` | 2 | `int16` |
+| `Int32` | `INT` | 4 | `int32` |
+| `Int64` | `BIGINT` | 8 | `int64` |
+| `Real` | `REAL` | 4 | `float32` |
+| `Double` | `DOUBLE` | 8 | `float64` |
+| `Bool` | `BOOLEAN` | 1 | `bool` |
+| `Char` | `CHAR` | 1 | `byte` |
+| `String` | `STRING` | Configured positive width | `string` |
+| `Numeric` | `NUMERIC` | Configured positive width | `string` |
+| `Date` | `DATE` | 4 | `int32` days since 2000-01-01 |
+| `Timestamp` | `TIMESTAMP` | 8 | `int64` wall-clock microseconds since 2000-01-01 |
+| `TimestampTZ` | `TIMESTAMPTZ` | 8 | `int64` UTC microseconds since 2000-01-01T00:00:00Z |
 
-## Scalar types
+Use the corresponding methods, such as `PutInt64`/`GetInt64`. Integers and IEEE floating-point bits use little endian. BOOLEAN stores only `0` or `1`; other bytes are rejected on read. CHAR represents a byte, not a Unicode character.
 
-| Dtype constant | Type value | Size | Getter/setter Go value |
-|---|---|---:|---|
-| `Int16` | SMALLINT | 2 | `int16` |
-| `Int32` | INT | 4 | `int32` |
-| `Int64` | BIGINT | 8 | `int64` |
-| `Real` | REAL | 4 | `float32` |
-| `Double` | DOUBLE | 8 | `float64` |
-| `Bool` | BOOLEAN | 1 | `bool` |
-| `Char` | CHAR | 1 | `byte` |
-| `String` | STRING | positive configured width | `string` |
-| `Numeric` | NUMERIC | positive configured width | `string` |
-| `Date` | DATE | 4 | `int32` days since 2000-01-01 |
-| `Timestamp` | TIMESTAMP | 8 | `int64` wall-clock microseconds since 2000-01-01 |
-| `TimestampTZ` | TIMESTAMPTZ | 8 | `int64` UTC-instant microseconds since 2000-01-01T00:00:00Z |
+STRING and NUMERIC slots are zero-padded, may fill their entire width, and end at the first NUL when read. Their widths count bytes. Writes reject embedded NUL and oversized values without changing the record.
 
-Use corresponding `PutInt64`/`GetInt64`, `PutNumeric`/`GetNumeric`, etc.
-Integers and IEEE floating-point bits are little endian. BOOLEAN contains only
-0 or 1; the getter rejects other bytes. Text slots are zero-padded, may fill
-their entire width, and end at the first NUL when read. STRING and NUMERIC reject
-embedded NUL and oversized values; their `Size` counts bytes, not characters.
+NUMERIC preserves exact decimal text, including fractional trailing zeros. Decimal and scientific notation, `NaN`, and signed `Infinity` are accepted. The codec validates spelling without converting through float64; PostgreSQL enforces database precision and scale constraints.
 
-NUMERIC stores exact decimal text with its fractional trailing zeros intact.
-Decimal/scientific notation, `NaN`, `Infinity`, `+Infinity`, and `-Infinity` are
-accepted. It never converts through float64, rounds, or truncates. The codec
-validates numeric spelling; PostgreSQL owns precision/scale constraints. Set a
-slot width large enough for the actual PostgreSQL output (including sign and
-point). Unconstrained NUMERIC values that exceed that width cause a clear error.
+DATE uses int32 extrema for `DateNegativeInfinity` and `DateInfinity`. Both timestamp types use int64 extrema for `TimestampNegativeInfinity` and `TimestampInfinity`. TIMESTAMP preserves civil time; TIMESTAMPTZ preserves the instant, not the original zone or offset. Conversion does not depend on Unix nanoseconds.
 
-`DateNegativeInfinity` and `DateInfinity` are int32 extrema;
-`TimestampNegativeInfinity` and `TimestampInfinity` are int64 extrema, used for
-both timestamp types. TIMESTAMP keeps civil clock fields; TIMESTAMPTZ keeps the
-instant and does not store the original zone name or offset. No conversion uses
-UnixNano, so dates outside its restricted year range remain supported.
+## NULLs
 
-## PostgreSQL source mapping
+The bitmap occupies `ceil(columnCount / 8)` bytes. For column `i`, bit `i % 8` of byte `i / 8` is **1 for NULL** and 0 otherwise. `RowSize()` includes the bitmap and every field slot, including NULL fields.
 
-The source reader validates query column count and OIDs against the layout before
-acquiring buffers, then scans reusable typed pgx destinations. Columns match by
-position; schema names are used in diagnostics. SMALLINT, INTEGER, BIGINT, REAL,
-DOUBLE PRECISION, BOOLEAN, NUMERIC/DECIMAL, DATE, TIMESTAMP, and TIMESTAMPTZ map to
-their matching types without implicit narrowing or float/decimal conversion.
-SERIAL and identity columns use their underlying integer OIDs.
+- `PutNull(record, col)` sets the NULL bit and clears that field's slot.
+- `IsNull(record, col)` checks the bitmap independently of the stored value.
+- Typed getters return `ErrNull` for NULL.
+- Successful typed writes clear their field's NULL bit; rejected writes leave the record unchanged.
 
-TEXT, VARCHAR, and BPCHAR map to STRING. They can map to CHAR only when each
-non-NULL value is exactly one byte. CHAR here is a byte slot, not a Unicode
-character abstraction. Unsupported OIDs (including domains and arrays) fail with
-column context, even for an empty result. No source type is silently converted
-to text merely because a string field was configured.
+Clear each reused record, then write every field or explicitly mark it NULL. A cleared bitmap means all fields are non-NULL. NULL is distinct from zero, false, empty text, and NaN.
 
-The reader preserves NUMERIC scale in binary and text query modes. pgx v5's
-binary zero-digit NUMERIC decoder discards zero's display scale; the adapter
-restores that scale from the PostgreSQL wire header before exact text encoding.
+## Batches and borrowed memory
 
-## Buffer flow and compatibility
+`RowsPerBuffer` includes bitmap space. Rows never span buffers. Before compression:
 
-`RowsPerBuffer`, `RowAt`, and `ValidatePayload` include the bitmap. Rows never span
-buffers. Before compression, `PayloadLen` and `UncompressedLen` equal
-`RecordCount * RowSize()`. Consumers must decompress and validate the used
-payload before taking borrowed row views.
+```text
+PayloadLen = UncompressedLen = RecordCount * RowSize()
+```
 
-This replaces the earlier bitmap-free row layout. **Existing encoded rows must
-be re-encoded and both endpoints upgraded together.** `protocol.FormatRow` and
-the network envelope remain unchanged; the handshake does not detect an old
-row implementation.
+Consumers decompress first and use `ValidatePayload` to check byte length against row count. `RowAt` and `GetStringBytes` return borrowed views: stop using them when buffer ownership changes or the buffer is released.
 
-Run `go test -race -cover -count=1 -timeout 60s ./...` for the full suite.
-For live PostgreSQL tests, use the PostgreSQL 17 fixture and `make test-postgres`,
-or supply `XDBC_TEST_DATABASE_URL` when running `go test ./internal/postgres/...`.
+The [source](../internal/postgres/README.md) and [sink](target-v1.md) both support every type above, including NULL. `make test-postgres` checks their round trip through TCP with both compression modes, including numeric scale and temporal edge cases.
+
+The bitmap replaced an older bitmap-free layout without changing `FormatRow` or the wire version. Upgrade both peers and re-encode old payloads; the handshake cannot detect that difference.
+
+Run `make test` for row codec tests and `make test-postgres` for source mapping tests.

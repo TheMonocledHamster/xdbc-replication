@@ -1,72 +1,38 @@
-# PostgreSQL Reader
+# PostgreSQL source adapter
 
-Go implementation of the PostgreSQL source reader for the XDBC replication project.
+`internal/postgres.Read` executes a query through `pgx`, encodes rows into pooled buffers, and pushes their IDs downstream. The coordinator owns the connection, pool, and output queue. The reader does not create tables or close the connection or queue.
 
-The reader supports nullable core scalar columns: SMALLINT, INTEGER, BIGINT,
-BOOLEAN, REAL, DOUBLE PRECISION, NUMERIC/DECIMAL, DATE, TIMESTAMP, TIMESTAMPTZ,
-and TEXT/VARCHAR/BPCHAR. NUMERIC is exact text with a caller-selected slot width;
-temporal values retain PostgreSQL precision and infinity. Query column count and
-OIDs must match the ordered layout. See [the row format](../../docs/row-v1.md)
-for encodings, NULL APIs, type mappings, and the bitmap compatibility change.
+## Reading a query
 
-## Prerequisites
+The query's column count and PostgreSQL type identifiers must match the configured row fields by position. Names are used for diagnostics. Type validation runs even for an empty result.
 
-- Go
-- Docker Desktop (or Docker Engine with Compose)
-- Make
+The reader fills complete rows, emits full batches and a final partial batch, and records sequence, row count, and used byte lengths. Empty input emits no data buffers. It clears reused rows before encoding them and releases any buffer it still owns on error.
 
-## Running Tests
+## Supported values
 
-From the TOP LEVEL repository root, start PostgreSQL 17:
+| PostgreSQL type | Row type |
+|---|---|
+| SMALLINT, INTEGER, BIGINT | `SMALLINT`, `INT`, `BIGINT` |
+| REAL, DOUBLE PRECISION | `REAL`, `DOUBLE` |
+| BOOLEAN | `BOOLEAN` |
+| TEXT, VARCHAR, BPCHAR | `STRING`, or `CHAR` for exactly one byte |
+| NUMERIC / DECIMAL | `NUMERIC` as exact decimal text |
+| DATE, TIMESTAMP, TIMESTAMPTZ | Matching temporal row type |
 
-```bash
-docker compose up -d
-```
+All source fields support NULL. Integer and floating-point types are not implicitly narrowed; unsupported PostgreSQL type identifiers fail with column context. SERIAL and identity columns use their underlying integer type.
 
-Run the reader tests:
+Text and numeric slot widths count bytes. Oversized values fail instead of being truncated. Numeric values retain decimal scale, including zero's scale in binary query mode. Temporal values retain PostgreSQL precision and infinity; TIMESTAMP keeps civil clock fields, while TIMESTAMPTZ keeps the instant.
 
-```bash
+See the [row format](../../docs/row-v1.md) for exact encodings. The [sink](../../docs/target-v1.md) supports the same nullable scalar types. The IoT sample uses a subset; separate live scalar tests cover the full set.
+
+## Tests
+
+From the repository root:
+
+```sh
 make test-postgres
 ```
 
-By default, the tests connect to PostgreSQL inside Docker at `localhost:5433`, using the `xdbc_test` database.
+This starts both Compose PostgreSQL 17 databases and tests the adapters plus full scalar transfers. For direct Go test runs, `XDBC_TEST_DATABASE_URL` enables adapter tests; `XDBC_TEST_SOURCE_DATABASE_URL` and `XDBC_TEST_TARGET_DATABASE_URL` enable the two-database round trips. Tests skip when their required connection variables are unset.
 
-Each test creates its own temporary table and inserts test data, so no manual table creation or dataset import is required.
-
-The suite also checks nullable mixed scalar rows in binary and text query modes,
-buffer reuse, exact decimal scale, temporal infinity and wide date ranges,
-schema rejection, and cancellation cleanup.
-
-To see individual test results:
-
-```bash
-make test-postgres GOFLAGS=-v
-```
-
-## Running Tests with a Custom Port
-The Makefile automatically detects PostgreSQL's Docker host port.
-
-To use a different port:
-
-```bash
-POSTGRES_PORT=5544 docker compose up -d
-make test-postgres
-```
-
-## Stopping PostgreSQL
-
-```bash
-docker compose down
-```
-
-The Docker volume preserves database data between restarts.
-
-To remove the database and its stored data:
-
-```bash
-docker compose down -v
-```
-
-## Next Steps
-
-Validate the reader against the authors' real IoT benchmark dataset using their original PostgreSQL schema.
+The mandatory two-database checks run through `make e2e`; see the [project README](../../README.md).

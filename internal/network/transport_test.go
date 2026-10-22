@@ -578,3 +578,34 @@ func TestReceivePoolBackpressure(t *testing.T) {
 	}
 	checkReleased(t, p, 1)
 }
+
+func TestSnappySessionTransportsUncompressedFallback(t *testing.T) {
+	ctx := testContext(t)
+	a, b := pipe(t)
+	source, target := testPool(t, 1, 64), testPool(t, 1, 64)
+	input, output := testQueue(t, 1), testQueue(t, 1)
+	payload := []byte("fallback bytes")
+	putBuffer(t, ctx, source, input, 0, payload, CompressionNone)
+	close(input)
+	cfg := Config{PayloadCap: 64, Compression: CompressionSnappy}
+	done := make(chan error, 1)
+	go func() { done <- Send(ctx, a, source, input, cfg) }()
+	if err := Receive(ctx, b, target, output, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	id, err := output.Pop(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := target.Buffer(id)
+	h := pool.DecodeHeader(encoded)
+	if h.Compression != uint8(CompressionNone) || !bytes.Equal(encoded[pool.HeaderSize:pool.HeaderSize+int(h.PayloadLen)], payload) {
+		t.Fatal("fallback bytes/encoding changed")
+	}
+	target.Release(id)
+	checkReleased(t, source, 1)
+	checkReleased(t, target, 1)
+}

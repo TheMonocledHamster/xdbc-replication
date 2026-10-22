@@ -1,0 +1,435 @@
+{
+  "schema": "public",
+  "table": "iotm",
+  "compression": "none",
+  "buffer_size": 65536,
+  "pool_size": 8,
+  "queue_capacity": 2,
+  "fields": [
+    {
+      "name": "id",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "flowid",
+      "type": "STRING",
+      "size": 45
+    },
+    {
+      "name": "srcip",
+      "type": "STRING",
+      "size": 16
+    },
+    {
+      "name": "srcport",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "dstip",
+      "type": "STRING",
+      "size": 16
+    },
+    {
+      "name": "dstport",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "protocol",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "timestamp",
+      "type": "STRING",
+      "size": 23
+    },
+    {
+      "name": "flowduration",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "totfwdpkts",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "totbwdpkts",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "totlenfwdpkts",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "totlenbwdpkts",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "fwdpktlenmax",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "fwdpktlenmin",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "fwdpktlenmean",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "fwdpktlenstd",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "bwdpktlenmax",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "bwdpktlenmin",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "bwdpktlenmean",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "bwdpktlenstd",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "flowbytspers",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "flowpktspers",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "flowiatmean",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "flowiatstd",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "flowiatmax",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "flowiatmin",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "fwdiattot",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "fwdiatmean",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "fwdiatstd",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "fwdiatmax",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "fwdiatmin",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "bwdiattot",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "bwdiatmean",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "bwdiatstd",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "bwdiatmax",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "bwdiatmin",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "fwdpshflags",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "bwdpshflags",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fwdurgflags",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "bwdurgflags",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fwdheaderlen",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "bwdheaderlen",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fwdpktspers",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "bwdpktspers",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "pktlenmin",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "pktlenmax",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "pktlenmean",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "pktlenstd",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "pktlenvar",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "finflagcnt",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "synflagcnt",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "rstflagcnt",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "pshflagcnt",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "ackflagcnt",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "urgflagcnt",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "cweflagcount",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "eceflagcnt",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "downperupratio",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "pktsizeavg",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "fwdsegsizeavg",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "bwdsegsizeavg",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "fwdbytsperbavg",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fwdpktsperbavg",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fwdblkrateavg",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "bwdbytsperbavg",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "bwdpktsperbavg",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "bwdblkrateavg",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "subflowfwdpkts",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "subflowfwdbyts",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "subflowbwdpkts",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "subflowbwdbyts",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "initfwdwinbyts",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "initbwdwinbyts",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fwdactdatapkts",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fwdsegsizemin",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "activemean",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "activestd",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "activemax",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "activemin",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "idlemean",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "idlestd",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "idlemax",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "idlemin",
+      "type": "DOUBLE",
+      "size": 8
+    },
+    {
+      "name": "label",
+      "type": "STRING",
+      "size": 9
+    }
+  ]
+}

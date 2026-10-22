@@ -139,6 +139,9 @@ func Send(ctx context.Context, conn net.Conn, p *pool.Pool, input queue.Queue, c
 	for {
 		id, popErr := input.Pop(ctx)
 		if errors.Is(popErr, io.EOF) {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			return WriteFrame(conn, Header{Type: MessageEnd}, nil)
 		}
 		if popErr != nil {
@@ -159,10 +162,10 @@ func sendBuffer(w io.Writer, p *pool.Pool, id int, cfg Config) error {
 		return err
 	}
 	bh := pool.DecodeHeader(b)
-	if uint64(bh.PayloadLen) > uint64(cfg.PayloadCap) || Compression(bh.Compression) != cfg.Compression {
+	if uint64(bh.PayloadLen) > uint64(cfg.PayloadCap) || !acceptsCompression(cfg.Compression, Compression(bh.Compression)) {
 		return fmt.Errorf("buffer %d does not match negotiated configuration", id)
 	}
-	h := Header{Type: MessageData, Compression: cfg.Compression, Format: cfg.Format,
+	h := Header{Type: MessageData, Compression: Compression(bh.Compression), Format: cfg.Format,
 		PayloadSize: pool.HeaderSize + bh.PayloadLen, RecordCount: bh.RecordCount}
 	return WriteFrame(w, h, b[:int(h.PayloadSize)])
 }
@@ -197,7 +200,7 @@ func Receive(ctx context.Context, conn net.Conn, p *pool.Pool, output queue.Queu
 		case MessageError:
 			return readRemoteError(conn, h)
 		case MessageData:
-			if h.PayloadSize < pool.HeaderSize || uint64(h.PayloadSize) > uint64(cfg.PayloadCap)+pool.HeaderSize || h.Compression != cfg.Compression || h.Format != cfg.Format {
+			if h.PayloadSize < pool.HeaderSize || uint64(h.PayloadSize) > uint64(cfg.PayloadCap)+pool.HeaderSize || !acceptsCompression(cfg.Compression, h.Compression) || h.Format != cfg.Format {
 				return fmt.Errorf("DATA frame violates negotiated size / encoding constraints")
 			}
 			if err := receiveBuffer(ctx, conn, p, output, h); err != nil {
@@ -276,4 +279,9 @@ func contextError(ctx context.Context, err error) error {
 		return ctx.Err()
 	}
 	return err
+}
+
+// A Snappy session permits uncompressed fallback for incompressible batches.
+func acceptsCompression(negotiated, actual Compression) bool {
+	return actual == negotiated || negotiated == CompressionSnappy && actual == CompressionNone
 }

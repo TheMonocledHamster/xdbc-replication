@@ -41,7 +41,7 @@ type SnappyCodec struct{}
 func (SnappyCodec) ID() Compression         { return Snappy }
 func (SnappyCodec) MaxEncodedLen(n int) int { return snappy.MaxEncodedLen(n) }
 
-// Compresses some bytes via the Snappy compression library
+// Compress writes Snappy bytes into dst. dst must fit MaxEncodedLen(len(src)).
 func (SnappyCodec) Compress(dst, src []byte) (int, error) {
 	// Have to ensure dst fits the data, otherwise snappy makes a new slice
 	if requiredDstSize := snappy.MaxEncodedLen(len(src)); requiredDstSize < 0 || len(dst) < requiredDstSize {
@@ -52,10 +52,8 @@ func (SnappyCodec) Compress(dst, src []byte) (int, error) {
 	return len(snappy.Encode(dst, src)), nil
 }
 
-// Decompresses some bytes via the Snappy compression library
-// WARNING: If there is an issue with the decompression process,
-// such as having it accidentally decompress a non-snappy-encoded
-// src, it will lead to undefined behavior
+// Decompress decodes Snappy bytes into dst. Invalid input and insufficient
+// destination space return errors.
 func (SnappyCodec) Decompress(dst, src []byte) (int, error) {
 	decodedLength, err := snappy.DecodedLen(src)
 	if err != nil { // Something went wrong getting the decoded length, somehow

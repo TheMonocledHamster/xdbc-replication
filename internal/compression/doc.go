@@ -1,4 +1,4 @@
-// Package compression provides uncompressed and Snappy codecs for pipeline
-// payloads. Codecs write into caller-provided destination buffers and report
-// insufficient capacity or invalid compressed data as errors.
+// Package compression provides the Snappy codec and pooled batch workers.
+// Workers support uncompressed fallback when compression does not shrink a
+// payload. The transfer runtime bypasses codecs entirely for none mode.
 package compression
