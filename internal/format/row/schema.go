@@ -6,10 +6,18 @@ import "fmt"
 type Dtype string
 
 const (
-	Int32  Dtype = "INT"
-	Double Dtype = "DOUBLE"
-	Char   Dtype = "CHAR"
-	String Dtype = "STRING"
+	Int32       Dtype = "INT"
+	Double      Dtype = "DOUBLE"
+	Char        Dtype = "CHAR"
+	String      Dtype = "STRING"
+	Int16       Dtype = "SMALLINT"
+	Int64       Dtype = "BIGINT"
+	Bool        Dtype = "BOOLEAN"
+	Real        Dtype = "REAL"
+	Numeric     Dtype = "NUMERIC"
+	Date        Dtype = "DATE"
+	Timestamp   Dtype = "TIMESTAMP"
+	TimestampTZ Dtype = "TIMESTAMPTZ"
 )
 
 // Field describes a named column and its width in bytes.
@@ -20,7 +28,6 @@ type Field struct {
 }
 
 // Layout is an immutable ordered schema. Construct it with NewLayout.
-// TODO: Support NULL values
 type Layout struct {
 	fields  []Field
 	offsets []int
@@ -36,9 +43,12 @@ func NewLayout(fields []Field) (*Layout, error) {
 	l := &Layout{
 		fields:  append([]Field(nil), fields...),
 		offsets: make([]int, len(fields)),
+		rowSize: (len(fields)-1)/8 + 1,
 	}
 
 	seen := make(map[string]bool)
+	widths := map[Dtype]int{Int16: 2, Int32: 4, Int64: 8, Bool: 1, Real: 4,
+		Double: 8, Char: 1, Date: 4, Timestamp: 8, TimestampTZ: 8}
 
 	for i, f := range fields {
 		if f.Name == "" || seen[f.Name] {
@@ -46,25 +56,19 @@ func NewLayout(fields []Field) (*Layout, error) {
 		}
 		seen[f.Name] = true
 
-		switch f.Type {
-		case Int32:
-			if f.Size != 4 {
-				return nil, fmt.Errorf("%s: INT must be 4 bytes", f.Name)
+		if width, ok := widths[f.Type]; ok {
+			if f.Size != width {
+				return nil, fmt.Errorf("%s: %s must be %d bytes", f.Name, f.Type, width)
 			}
-		case Double:
-			if f.Size != 8 {
-				return nil, fmt.Errorf("%s: DOUBLE must be 8 bytes", f.Name)
+		} else {
+			switch f.Type {
+			case String, Numeric:
+				if f.Size <= 0 {
+					return nil, fmt.Errorf("%s: invalid %s width", f.Name, f.Type)
+				}
+			default:
+				return nil, fmt.Errorf("unsupported type %q", f.Type)
 			}
-		case Char:
-			if f.Size != 1 {
-				return nil, fmt.Errorf("%s: CHAR must be 1 byte", f.Name)
-			}
-		case String:
-			if f.Size <= 0 {
-				return nil, fmt.Errorf("%s: invalid string width", f.Name)
-			}
-		default:
-			return nil, fmt.Errorf("unsupported type %q", f.Type)
 		}
 
 		maxInt := int(^uint(0) >> 1)
@@ -78,6 +82,9 @@ func NewLayout(fields []Field) (*Layout, error) {
 
 	return l, nil
 }
+
+// Fields returns an independent copy of the ordered schema.
+func (l *Layout) Fields() []Field { return append([]Field(nil), l.fields...) }
 
 // RowSize returns the number of bytes in one encoded row.
 func (l *Layout) RowSize() int {

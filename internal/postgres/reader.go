@@ -1,4 +1,3 @@
-
 package postgres
 
 import (
@@ -36,6 +35,12 @@ func Read(
 		return fmt.Errorf("query PostgreSQL: %w", err)
 	}
 	defer rows.Close()
+
+	adapters, destinations, err := prepareColumns(layout, rows.FieldDescriptions())
+	if err != nil {
+		return err
+	}
+	fields := layout.Fields()
 
 	// No buffer is currently owned by the reader.
 	bufferID := -1
@@ -83,17 +88,23 @@ func Read(
 
 	for rows.Next() {
 		// Read the actual PostgreSQL column values.
-		values, err := rows.Values()
+		err := rows.Scan(destinations...)
 		if err != nil {
 			return fmt.Errorf("read PostgreSQL row: %w", err)
+		}
+		for col, adapter := range adapters {
+			if adapter.postScan != nil {
+				adapter.postScan(rows.RawValues()[col])
+			}
 		}
 
 		// Borrow a buffer only when we have a row to write.
 		if bufferID == -1 {
-			bufferID, err = p.Acquire(ctx)
+			id, err := p.Acquire(ctx)
 			if err != nil {
 				return fmt.Errorf("acquire buffer: %w", err)
 			}
+			bufferID = id
 
 			buffer, err = p.Buffer(bufferID)
 			if err != nil {
@@ -109,26 +120,11 @@ func Read(
 			return fmt.Errorf("get row slot: %w", err)
 		}
 
-		// Encode each column based on its PostgreSQL value type.
-		for col, value := range values {
-			switch v := value.(type) {
-			case int32:
-				err = layout.PutInt32(record, col, v)
-			case float64:
-				err = layout.PutDouble(record, col, v)
-			case string:
-				err = layout.PutString(record, col, v)
-			case nil:
-				return fmt.Errorf("column %d: NULL values not supported", col)
-			default:
-				return fmt.Errorf(
-					"column %d: unsupported PostgreSQL value type %T",
-					col, value,
-				)
-			}
-
-			if err != nil {
-				return fmt.Errorf("encode column %d: %w", col, err)
+		// A reused buffer can still contain another row's bitmap and payload.
+		clear(record)
+		for col, adapter := range adapters {
+			if err := adapter.encode(record); err != nil {
+				return fmt.Errorf("encode column %d (%s): %w", col, fields[col].Name, err)
 			}
 		}
 
