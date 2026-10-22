@@ -2,8 +2,6 @@ package pool
 
 import (
 	"testing"
-
-	"github.com/TheMonocledHamster/xdbc-replication/internal/compression"
 )
 
 // Shamelessly "reimagined" from Adithya's header test.
@@ -16,14 +14,14 @@ func TestBufferHeaderMetadata(t *testing.T) {
 		RecordCount:     2,
 		PayloadLen:      4096,
 		UncompressedLen: 4096,
-		Compression:     uint8(compression.None),
+		Compression:     0, // compression.None creates a loop w/ `compression/stage.go`
 		Protocol:        1,
 		Unused1:         0,
 		Unused2:         0,
 	}
 
-	if h.Compression != 0 {
-		t.Fatalf("expected compression type 0 (None), got %d", h.Compression)
+	if h.RecordCount != 2 {
+		t.Fatalf("expected record count 2, got %d", h.RecordCount)
 	}
 
 	if h.PayloadLen != 4096 {

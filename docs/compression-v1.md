@@ -17,4 +17,3 @@
 ## Additional Functionality part of the Compression package
 
 - ByID()
-- RequiredPayloadCap()
