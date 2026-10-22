@@ -12,5 +12,6 @@ require (
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/lib/pq v1.10.9
 	golang.org/x/sync v0.24.0
 )
