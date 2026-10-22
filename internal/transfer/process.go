@@ -3,6 +3,7 @@ package transfer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -14,6 +15,15 @@ func Env(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// Timeout reads a positive transfer duration; smoke runs default to one minute.
+func Timeout() (time.Duration, error) {
+	timeout, err := time.ParseDuration(Env("TRANSFER_TIMEOUT", "1m"))
+	if err != nil || timeout <= 0 {
+		return 0, fmt.Errorf("TRANSFER_TIMEOUT must be a positive duration, such as 1m or 30m")
+	}
+	return timeout, nil
 }
 
 // RunHTTP shuts down handlers before the process exits, cancelling in-flight

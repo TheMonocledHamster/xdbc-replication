@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/TheMonocledHamster/xdbc-replication/internal/transfer"
 	"github.com/jackc/pgx/v5"
@@ -23,6 +22,10 @@ func main() {
 }
 func run() error {
 	c, err := transfer.LoadConfig(transfer.Env("CONFIG_PATH", "testdata/iot/transfer.json"))
+	if err != nil {
+		return err
+	}
+	timeout, err := transfer.Timeout()
 	if err != nil {
 		return err
 	}
@@ -49,7 +52,7 @@ func run() error {
 		return conn.Ping(ctx)
 	}
 	g.Go(func() error {
-		return transfer.RunHTTP(ctx, transfer.Env("HTTP_ADDR", ":8080"), transfer.Handler(time.Minute, ready, nil))
+		return transfer.RunHTTP(ctx, transfer.Env("HTTP_ADDR", ":8080"), transfer.Handler(timeout, ready, nil))
 	})
 	g.Go(func() error {
 		slog.Info("server listening", "address", listener.Addr(), "compression", c.Compression)
@@ -61,7 +64,7 @@ func run() error {
 				}
 				return err
 			}
-			session, finish := context.WithTimeout(ctx, time.Minute)
+			session, finish := context.WithTimeout(ctx, timeout)
 			err = transfer.ServeTransfer(session, conn, url, c)
 			finish()
 			if err != nil {

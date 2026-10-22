@@ -22,10 +22,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        dataset: [lineitem, acs, iot, icu]
         compression: [none, snappy]
     steps:
       - uses: actions/checkout@v4
-      - run: make e2e COMPRESSION=${{ matrix.compression }}
+      - run: make e2e DATASET=${{ matrix.dataset }} COMPRESSION=${{ matrix.compression }}
       - if: failure()
         run: docker compose logs --no-color
       - if: always()

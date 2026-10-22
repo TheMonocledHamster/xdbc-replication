@@ -1,48 +1,82 @@
 # XDBC replication
 
-A Go implementation of the transfer pipeline described in [Fast and Scalable Data Transfer Across Data Systems](https://dl.acm.org/doi/10.1145/3725294).
+A Go implementation of the pipeline in [Fast and Scalable Data Transfer Across Data Systems](https://dl.acm.org/doi/10.1145/3725294).
 
-The current application copies one PostgreSQL table between two PostgreSQL 17 databases. A persistent server reads the source; a persistent client receives and writes the data. Transfers run one at a time, with optional Snappy compression.
+The application copies a configured table between two PostgreSQL 17 databases. A persistent server reads the source; a persistent client writes the sink. Transfers run one at a time, with optional Snappy compression.
+
+## Datasets
+
+Select a dataset with `DATASET`. The default is `iot`.
+
+| Dataset | Table | Columns |
+|---|---|---|
+| `lineitem` | `lineitem_sf10` | 16 |
+| `acs` | `ss13husallm` | 230 |
+| `iot` | `iotm` | 85 |
+| `icu` | `inputeventsm` | 26 |
+
+Each has a checked-in 128-row real-data sample, a PostgreSQL schema, and a transfer configuration. Lineitem uses the PostgreSQL DDL's BIGINT, exact NUMERIC, and DATE types. See [dataset provenance and input formats](testdata/README.md).
 
 ## Quick start
 
-Install Docker with Compose v2 and Make, then run from the repository root:
+Install Docker with Compose v2 and Make. Run from the repository root:
 
 ```sh
-make e2e
-make e2e COMPRESSION=snappy
+make e2e DATASET=acs COMPRESSION=snappy
+make e2e-all
 ```
 
-Each command builds the application, starts the services, and runs the same checks:
+`e2e-all` checks all four samples with both compression modes. Each run loads the selected sample, verifies repeated transfers, forces a sink failure and checks recovery, tests an empty source, then leaves a verified sample behind. No dataset download is needed for these checks.
 
-1. Load the checked-in IoT sample: 128 rows and 85 columns.
-2. Transfer twice and compare every column, including duplicate rows.
-3. Force a sink write failure, then verify that another transfer succeeds.
-4. Transfer an empty source, then restore and transfer the sample.
-
-Both processes stay running. The final source and sink contain the verified sample. No dataset download is needed.
-
-## Run a transfer yourself
+## Work interactively
 
 ```sh
-make up        # build and start the databases, server, and client
-make seed      # prepare both tables and load the source sample
-make transfer  # replace the sink with the source contents
-make verify    # compare source and sink
+make up DATASET=lineitem COMPRESSION=snappy
+make seed DATASET=lineitem
+make transfer DATASET=lineitem
+make verify DATASET=lineitem
+make export DATASET=lineitem
 ```
 
-You can also trigger the client directly:
+The export is `exports/lineitem.csv`, with headers and deterministic row ordering. Use the same dataset in subsequent commands. `make up` switches both application processes to that dataset; tables for other datasets remain in the databases.
+
+You can trigger the active client directly:
 
 ```sh
 curl -X POST http://localhost:8080/transfer
 # {"rows":128,"elapsed_ms":12}
-
-curl http://localhost:8080/healthz
 ```
 
-Every transfer clears the sink before writing. Batches commit separately, so a failed run may leave partial data. The next run clears it again. A second request during a transfer receives HTTP 409.
+The API runs synchronously. A concurrent request receives HTTP 409. Each transfer clears the selected sink table and commits batches separately, so failures can leave partial data until the next transfer.
 
-To change compression, run `make up COMPRESSION=snappy` or `make up COMPRESSION=none`. This recreates the application containers; database data is retained.
+## Full datasets
+
+Download the selected archive explicitly, extract its data as CSV, and load it:
+
+```sh
+make fetch DATASET=acs TRANSFER_TIMEOUT=30m
+make up DATASET=acs COMPRESSION=snappy TRANSFER_TIMEOUT=30m
+make load DATASET=acs TRANSFER_TIMEOUT=30m
+make transfer DATASET=acs TRANSFER_TIMEOUT=30m
+make verify DATASET=acs TRANSFER_TIMEOUT=30m
+make export DATASET=acs TRANSFER_TIMEOUT=30m
+```
+
+Downloads go to `data/<dataset>.csv`; exports go to `exports/<dataset>.csv`. Downloads and exports use temporary `.part` files and rename them only after success. Full data stays outside Git and Docker images. Lineitem's much larger workload may need a longer timeout.
+
+To use the existing full IoT file in `data/iot.csv`:
+
+```sh
+make up DATASET=iot COMPRESSION=snappy TRANSFER_TIMEOUT=30m
+make load DATASET=iot TRANSFER_TIMEOUT=30m
+make transfer DATASET=iot TRANSFER_TIMEOUT=30m
+make verify DATASET=iot TRANSFER_TIMEOUT=30m
+make export DATASET=iot TRANSFER_TIMEOUT=30m
+```
+
+`make load` imports the complete file transactionally, with the header setting recorded for that dataset. The authors' full files are headerless; the sample CSVs include headers. Do not use `make seed` or `make e2e` to load full data: they replace the selected source with its small sample.
+
+Verification compares row counts and SHA-256 digests of sorted PostgreSQL CSV output across all columns. Duplicates are retained. Sorting happens in PostgreSQL; Go streams both verification and export without holding the relation in memory.
 
 ## Inspect and stop
 
@@ -52,40 +86,20 @@ docker compose logs -f server client
 make down
 ```
 
-`make down` retains database volumes. To delete this project's stored database data explicitly:
+Default host ports are client `8080`, source PostgreSQL `5433`, and sink PostgreSQL `5434`, all bound to localhost. Both databases use database `xdbc_test`, user `postgres`, and password `postgres`.
+
+`make down` retains data. `docker compose down -v` explicitly removes this project's database volumes.
+
+## Tests and documentation
 
 ```sh
-docker compose down -v
+make test           # Go race tests and vet; requires Go 1.26
+make test-postgres  # live adapter and scalar round-trip tests
 ```
 
-Default local connections:
+CI runs these checks plus the four-dataset/two-compression E2E matrix. Both adapters support NULL and all [row scalar types](docs/row-v1.md#field-encodings).
 
-| Service | Address |
-|---|---|
-| Client HTTP API | `http://localhost:8080` |
-| Source PostgreSQL | `localhost:5433` |
-| Sink PostgreSQL | `localhost:5434` |
-
-Both databases use database `xdbc_test`, user `postgres`, and password `postgres`. Published ports bind to localhost. See [configuration](docs/configuration.md) to change ports or run commands outside Compose.
-
-## Tests
-
-Go 1.26 is needed for local Go tests; the Compose workflow builds Go inside Docker.
-
-```sh
-make test           # race tests and go vet
-make test-postgres  # adapters and scalar round trips against two databases
-```
-
-`make test-postgres` starts both PostgreSQL 17 databases. It tests the adapters and full scalar transfers over TCP, with and without Snappy. Coverage includes NULLs, exact numeric scale, floating-point special values, and wide dates. Direct Go test runs skip database tests unless their connection variables are set; the Make target supplies them.
-
-CI runs the Go checks, live scalar round trips, and separate Compose IoT E2E jobs for uncompressed and Snappy transfers.
-
-## Documentation
-
-- [Architecture](docs/architecture.md): services, transfer lifecycle, HTTP API, and failure behavior.
-- [Configuration](docs/configuration.md): shared schema, buffer settings, and environment variables.
-- [Component guide](docs/README.md): row format, protocol, adapters, pools, and queues.
-- [IoT fixture](testdata/iot/README.md): sample provenance and checksum.
-
-Both database adapters support NULL and every [row scalar type](docs/row-v1.md#field-encodings): integers, floats, boolean, exact numeric, text/character fields, date, timestamp, and timestamptz. The IoT sample exercises a subset; the live scalar tests cover the full set. Parallel workers, CDC, baseline comparisons, and full-dataset benchmarks are future work.
+- [Architecture](docs/architecture.md): lifecycle, HTTP API, and failure behavior.
+- [Configuration](docs/configuration.md): dataset selection, settings, and environment variables.
+- [Component guide](docs/README.md): protocol, codecs, adapters, pools, and queues.
+- [Dataset guide](testdata/README.md): schemas, source archives, and fixture checksums.

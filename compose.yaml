@@ -2,8 +2,10 @@ x-app: &app
   image: xdbc-replication:local
   build: .
   environment: &app-env
-    CONFIG_PATH: testdata/iot/transfer.json
+    CONFIG_PATH: testdata/${DATASET:-iot}/transfer.json
+    DATA_FILE: /data/${FILE:-${DATASET:-iot}.csv}
     COMPRESSION: ${COMPRESSION:-none}
+    TRANSFER_TIMEOUT: ${TRANSFER_TIMEOUT:-1m}
   init: true
   healthcheck:
     test: ["CMD", "harness", "health"]
@@ -68,6 +70,8 @@ services:
   tools:
     <<: *app
     profiles: ["tools"]
+    volumes:
+      - ${DATA_DIR:-./data}:/data:ro,z
     entrypoint: ["harness"]
     command: ["verify"]
     healthcheck:

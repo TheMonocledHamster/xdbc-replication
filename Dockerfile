@@ -10,6 +10,7 @@ RUN CGO_ENABLED=0 go build -o /out/server ./cmd/server && \
 FROM debian:bookworm-slim
 WORKDIR /app
 COPY --from=build /out/ /usr/local/bin/
-COPY testdata/iot/ testdata/iot/
+COPY testdata/ testdata/
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 USER 65532:65532
 CMD ["server"]

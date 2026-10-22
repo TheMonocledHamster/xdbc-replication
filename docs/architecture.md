@@ -1,6 +1,6 @@
 # Architecture
 
-The application transfers one configured table between two PostgreSQL 17 databases. The server and client stay running; each transfer uses fresh connections, queues, and buffer pools.
+The application transfers one configured table between two PostgreSQL 17 databases. `DATASET=lineitem|acs|iot|icu` selects the table and row schema; changing it with `make up` recreates both application processes. The server and client stay running; each transfer uses fresh connections, queues, and buffer pools.
 
 ```text
 source-db → server → TCP → client → target-db
@@ -16,7 +16,7 @@ source-db → server → TCP → client → target-db
 | `target-db` | Holds the sink table | PostgreSQL 17 |
 | `server` | Accepts sequential TCP sessions and reads the source | `cmd/server` |
 | `client` | Accepts HTTP requests and writes the sink | `cmd/client` |
-| `tools` | Seeds, triggers, and verifies the small fixture; runs on demand | `cmd/harness` |
+| `tools` | Loads, downloads, triggers, verifies, and exports the selected dataset; runs on demand | `cmd/harness` |
 
 `internal/transfer` coordinates the stages. Source and sink behavior remains in `internal/postgres` and `internal/target`, so those adapters can be replaced separately from the control API.
 
@@ -51,7 +51,7 @@ The client exposes both endpoints. The server exposes only `/healthz` on its int
 
 `POST /transfer` takes no parameters and runs synchronously against the configured table. There is no job queue or transfer-history API. `elapsed_ms` includes setup and writing, but excludes the final row-count query and independent harness verification.
 
-Readiness checks database connectivity, not whether fixture tables exist. Run `make seed` before a manual transfer. Each transfer has a one-minute timeout; disconnecting the HTTP caller cancels its active transfer.
+Readiness checks database connectivity, not whether fixture tables exist. Run `make seed` before a manual transfer. Each transfer defaults to a one-minute timeout (override with `TRANSFER_TIMEOUT`); disconnecting the HTTP caller cancels its active transfer.
 
 ## Ownership and failures
 
@@ -63,8 +63,12 @@ The sink commits one transaction per batch. There is no whole-transfer rollback 
 
 ## Harness
 
-`make e2e` runs the fixture checks described in the [README](../README.md). Verification queries both databases directly, renders complete rows through PostgreSQL JSON, sorts them, and compares them with duplicate counts preserved. It does not use the XDBC row codec.
+`make e2e DATASET=<name>` runs the selected 128-row sample through repeated transfers, failure recovery, and empty input. `make e2e-all` repeats this for all four datasets and both compression modes. CI runs the same eight combinations.
 
-The harness is intentionally small and holds the fixture in memory. It is a correctness check, not a full-dataset benchmark or a general data-loading tool.
+`make load` creates the selected tables if needed and transactionally replaces the source from a full local CSV. `make seed` uses the checked-in sample instead. The sink is cleared by the transfer itself.
 
-`make test-postgres` separately runs the same transfer runtime against a small scalar relation in two live databases. It checks every supported type, NULLs, exact numeric scale, floating-point wire bytes, wide and BC dates, and temporal infinity in both compression modes.
+`make fetch` explicitly downloads the author's archive, extracts the selected member, and converts native Lineitem pipe records to standard CSV. It preserves commas in comments and validates the gzip stream. Download and export files are published only after the command succeeds.
+
+`make verify` streams canonical, sorted PostgreSQL CSV output from each database into SHA-256 digests. It compares counts and hashes across all columns without assuming a unique key or holding the relation in Go memory. `make export` streams the sink's same canonical CSV to the host. These operations are separate from transfer timing.
+
+`make test-postgres` also checks the transfer runtime against a small scalar relation in two databases, including NULLs, numeric scale, floating-point wire bytes, wide and BC dates, and temporal infinity in both compression modes.

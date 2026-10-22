@@ -32,3 +32,14 @@ go.work.sum
 .idea/
 .vscode/
 references*
+
+# Full local dataset and generated exports
+testdata/iot/iotm.csv
+target.csv
+target.csv.part
+
+# Full inputs and generated dataset exports
+data/
+exports/
+testdata/*/*.csv
+!testdata/*/sample.csv

@@ -1,0 +1,1160 @@
+{
+  "schema": "public",
+  "table": "ss13husallm",
+  "compression": "none",
+  "buffer_size": 65536,
+  "pool_size": 8,
+  "queue_capacity": 2,
+  "fields": [
+    {
+      "name": "serialno",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "division",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "puma",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "region",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "st",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "adjhsg",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "adjinc",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "np",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "type",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "access",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "acr",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "ags",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "bath",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "bdsp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "bld",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "broadbnd",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "bus",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "compothx",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "conp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "dialup",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "dsl",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "elep",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fiberop",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fs",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fulp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "gasp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "handheld",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "hfl",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "insp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "laptop",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "mhp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "modem",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "mrgi",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "mrgp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "mrgt",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "mrgx",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "othsvcex",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "refr",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "rmsp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "rntm",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "rntp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "rwat",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "rwatpr",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "satellite",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "sink",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "smp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "stov",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "tel",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "ten",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "toil",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "vacs",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "valp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "veh",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "watp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "ybl",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fes",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "ffincp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fgrntp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fhincp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fincp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fparc",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fsmocp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "grntp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "grpip",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "hhl",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "hht",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "hincp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "hugcl",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "hupac",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "hupaoc",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "huparc",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "kit",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "lngi",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "multg",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "mv",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "noc",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "npf",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "npp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "nr",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "nrc",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "ocpip",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "partner",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "plm",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "psf",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "r18",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "r60",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "r65",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "resmode",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "smocp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "smx",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "srnt",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "ssmc",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "sval",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "taxp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wif",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wkexrel",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "workstat",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "faccessp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "facrp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fagsp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fbathp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fbdsp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fbldp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fbroadbndp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fbusp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fcompothxp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fconp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fdialupp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fdslp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "felep",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "ffiberopp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "ffsp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "ffulp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fgasp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fhandheldp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fhflp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "finsp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fkitp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "flaptopp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fmhp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fmodemp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fmrgip",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fmrgp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fmrgtp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fmrgxp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fmvp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fothsvcexp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fplmp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "frefrp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "frmsp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "frntmp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "frntp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "frwatp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "frwatprp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fsatellitep",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fsinkp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fsmp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fsmxhp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fsmxsp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fstovp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "ftaxp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "ftelp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "ftenp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "ftoilp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fvacsp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fvalp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fvehp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fwatp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "fyblp",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp1",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp2",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp3",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp4",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp5",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp6",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp7",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp8",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp9",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp10",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp11",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp12",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp13",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp14",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp15",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp16",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp17",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp18",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp19",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp20",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp21",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp22",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp23",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp24",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp25",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp26",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp27",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp28",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp29",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp30",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp31",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp32",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp33",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp34",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp35",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp36",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp37",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp38",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp39",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp40",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp41",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp42",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp43",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp44",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp45",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp46",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp47",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp48",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp49",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp50",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp51",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp52",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp53",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp54",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp55",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp56",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp57",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp58",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp59",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp60",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp61",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp62",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp63",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp64",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp65",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp66",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp67",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp68",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp69",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp70",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp71",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp72",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp73",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp74",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp75",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp76",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp77",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp78",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp79",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "wgtp80",
+      "type": "INT",
+      "size": 4
+    }
+  ]
+}

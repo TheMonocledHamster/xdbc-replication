@@ -1,10 +1,10 @@
-// The harness is deliberately fixture-specific: it prepares and compares small
-// PostgreSQL tables without depending on XDBC's row encoder or decoder.
+// The harness loads, transfers, verifies, and exports the paper datasets.
+// Small checked-in samples drive CI; full operations stream their data.
 package main
 
 import (
 	"context"
-	"encoding/csv"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,15 +12,17 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"slices"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/TheMonocledHamster/xdbc-replication/internal/dataset"
 	"github.com/TheMonocledHamster/xdbc-replication/internal/transfer"
 	"github.com/jackc/pgx/v5"
 )
 
 type harness struct {
+	dataset              dataset.Dataset
 	config               transfer.Config
 	source, sink         *pgx.Conn
 	clientURL, serverURL string
@@ -33,17 +35,24 @@ func main() {
 }
 func run() error {
 	if len(os.Args) != 2 {
-		return errors.New("usage: harness seed|transfer|verify|e2e|health")
+		return errors.New("usage: harness seed|load|fetch|transfer|verify|export|e2e|health")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	timeout, err := transfer.Timeout()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout+time.Minute)
 	defer cancel()
 	clientURL := transfer.Env("CLIENT_URL", "http://client:8080")
 	if os.Args[1] == "health" {
 		return health(ctx, clientURL)
 	}
-	c, err := transfer.LoadConfig(transfer.Env("CONFIG_PATH", "testdata/iot/transfer.json"))
+	d, err := dataset.Load(transfer.Env("CONFIG_PATH", "testdata/iot/transfer.json"))
 	if err != nil {
 		return err
+	}
+	if os.Args[1] == "fetch" {
+		return d.Fetch(ctx, os.Stdout)
 	}
 	source, err := pgx.Connect(ctx, os.Getenv("SOURCE_DATABASE_URL"))
 	if err != nil {
@@ -55,10 +64,18 @@ func run() error {
 		return err
 	}
 	defer sink.Close(context.Background())
-	h := harness{c, source, sink, clientURL, transfer.Env("SERVER_URL", "http://server:8080")}
+	h := harness{d, d.Config, source, sink, clientURL, transfer.Env("SERVER_URL", "http://server:8080")}
 	switch os.Args[1] {
 	case "seed":
 		return h.seed(ctx)
+	case "load":
+		return h.load(ctx, transfer.Env("DATA_FILE", "/data/"+d.Name+".csv"), d.FullHeader, false)
+	case "export":
+		if _, err := h.sink.Exec(ctx, "SET TIME ZONE 'UTC'; SET DateStyle TO 'ISO'"); err != nil {
+			return err
+		}
+		_, err := h.sink.PgConn().CopyTo(ctx, os.Stdout, d.CopyQuery())
+		return err
 	case "transfer":
 		return h.transfer(ctx, http.StatusOK)
 	case "verify":
@@ -70,7 +87,18 @@ func run() error {
 	}
 }
 func (h harness) seed(ctx context.Context) error {
-	ddl, err := os.ReadFile("testdata/iot/schema.sql")
+	return h.load(ctx, filepath.Join(h.dataset.Directory, "sample.csv"), true, true)
+}
+
+// Loading replaces only the selected source relation. The sink is cleared by
+// the transfer itself; a bad input file does not destroy its previous contents.
+func (h harness) load(ctx context.Context, path string, header, sample bool) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	ddl, err := os.ReadFile(filepath.Join(h.dataset.Directory, "schema.sql"))
 	if err != nil {
 		return err
 	}
@@ -78,20 +106,30 @@ func (h harness) seed(ctx context.Context) error {
 		if _, err := db.Exec(ctx, string(ddl)); err != nil {
 			return err
 		}
-		if _, err := db.Exec(ctx, "TRUNCATE TABLE "+h.config.Relation()); err != nil {
-			return err
-		}
 	}
 	if _, err := h.sink.Exec(ctx, "ALTER TABLE "+h.config.Relation()+" DROP CONSTRAINT IF EXISTS harness_reject"); err != nil {
 		return err
 	}
-	file, err := os.Open("testdata/iot/sample.csv")
+	tx, err := h.source.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	_, err = h.source.PgConn().CopyFrom(ctx, file, "COPY "+h.config.Relation()+" FROM STDIN WITH (FORMAT csv, HEADER true)")
-	return err
+	defer tx.Rollback(context.Background())
+	if _, err := tx.Exec(ctx, "TRUNCATE TABLE "+h.config.Relation()); err != nil {
+		return err
+	}
+	tag, err := tx.Conn().PgConn().CopyFrom(ctx, file, fmt.Sprintf("COPY %s FROM STDIN WITH (FORMAT csv, HEADER %t)", h.config.Relation(), header))
+	if err != nil {
+		return err
+	}
+	if sample && tag.RowsAffected() != h.dataset.SampleRows {
+		return fmt.Errorf("%s sample has %d rows, expected %d", h.dataset.Name, tag.RowsAffected(), h.dataset.SampleRows)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	fmt.Printf("loaded %s: %d rows\n", h.dataset.Name, tag.RowsAffected())
+	return nil
 }
 func (h harness) transfer(ctx context.Context, status int) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, h.clientURL+"/transfer", nil)
@@ -127,38 +165,26 @@ func (h harness) transfer(ctx context.Context, status int) error {
 	return nil
 }
 func (h harness) verify(ctx context.Context) error {
-	// PostgreSQL renders every column, including NULL and floating-point special
-	// values. Sorting the tiny fixture preserves duplicates without assuming a key.
-	query := "SELECT row_to_json(t)::text FROM (" + h.config.Query() + ") t"
-	read := func(db *pgx.Conn) ([]string, error) {
-		rows, err := db.Query(ctx, query)
-		if err != nil {
-			return nil, err
+	fingerprint := func(db *pgx.Conn) (string, int64, error) {
+		if _, err := db.Exec(ctx, "SET TIME ZONE 'UTC'; SET DateStyle TO 'ISO'"); err != nil {
+			return "", 0, err
 		}
-		defer rows.Close()
-		var records []string
-		for rows.Next() {
-			var record string
-			if err := rows.Scan(&record); err != nil {
-				return nil, err
-			}
-			records = append(records, record)
-		}
-		slices.Sort(records)
-		return records, rows.Err()
+		hash := sha256.New()
+		tag, err := db.PgConn().CopyTo(ctx, hash, h.dataset.CopyQuery())
+		return fmt.Sprintf("%x", hash.Sum(nil)), tag.RowsAffected(), err
 	}
-	source, err := read(h.source)
+	source, sourceRows, err := fingerprint(h.source)
 	if err != nil {
 		return err
 	}
-	sink, err := read(h.sink)
+	sink, sinkRows, err := fingerprint(h.sink)
 	if err != nil {
 		return err
 	}
-	if !slices.Equal(source, sink) {
-		return fmt.Errorf("source and sink differ (source=%d rows, sink=%d rows)", len(source), len(sink))
+	if source != sink || sourceRows != sinkRows {
+		return fmt.Errorf("%s source and sink differ (rows: %d/%d, SHA-256: %s/%s)", h.dataset.Name, sourceRows, sinkRows, source, sink)
 	}
-	fmt.Printf("verified %d rows across %d columns\n", len(source), len(h.config.Fields))
+	fmt.Printf("verified %s: %d rows, %d columns, SHA-256 %s\n", h.dataset.Name, sourceRows, len(h.config.Fields), source)
 	return nil
 }
 func health(ctx context.Context, url string) error {
@@ -180,19 +206,6 @@ func (h harness) e2e(ctx context.Context) error {
 	if err := h.seed(ctx); err != nil {
 		return err
 	}
-	// Assert the checked-in fixture really contains the documented 128 records.
-	file, err := os.Open("testdata/iot/sample.csv")
-	if err != nil {
-		return err
-	}
-	records, err := csv.NewReader(file).ReadAll()
-	file.Close()
-	if err != nil {
-		return err
-	}
-	if len(records) != 129 {
-		return fmt.Errorf("expected header + 128 IoT records, got %d", len(records))
-	}
 	for i := 0; i < 2; i++ {
 		if err := h.transfer(ctx, http.StatusOK); err != nil {
 			return err
@@ -200,6 +213,14 @@ func (h harness) e2e(ctx context.Context) error {
 		if err := h.verify(ctx); err != nil {
 			return err
 		}
+	}
+	// A wrong header setting must roll back source replacement, not leave the
+	// previously loaded dataset empty after TRUNCATE.
+	if err := h.load(ctx, filepath.Join(h.dataset.Directory, "sample.csv"), false, false); err == nil {
+		return fmt.Errorf("headerless load unexpectedly accepted sample headers")
+	}
+	if err := h.verify(ctx); err != nil {
+		return err
 	}
 	// NOT VALID permits adding the constraint to a populated table; new writes
 	// still fail. A failed request must not poison the persistent processes.
