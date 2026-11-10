@@ -44,3 +44,6 @@ data/
 exports/
 testdata/*/*.csv
 !testdata/*/sample.csv
+
+#DS_Store
+*.DS_Store
