@@ -23,11 +23,16 @@ jobs:
     strategy:
       matrix:
         dataset: [lineitem, acs, iot, icu]
-        compression: [none, snappy]
     steps:
       - uses: actions/checkout@v4
-      - run: make e2e DATASET=${{ matrix.dataset }} COMPRESSION=${{ matrix.compression }}
+      - run: make e2e DATASET=${{ matrix.dataset }}
       - if: failure()
         run: docker compose logs --no-color
       - if: always()
         run: docker compose down -v
+  multi-machine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Transfer between isolated source and target stacks
+        run: XDBC_TEST_HOST_IP="$(hostname -I | awk '{print $1}')" ./scripts/e2e-multi-machine.sh

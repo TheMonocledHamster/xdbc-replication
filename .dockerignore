@@ -4,6 +4,7 @@
 .aws
 docs/references
 *.out
+/bin/
 
 # Full local dataset and generated exports
 testdata/iot/iotm.csv

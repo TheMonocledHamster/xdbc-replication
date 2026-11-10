@@ -63,7 +63,7 @@ The sink commits one transaction per batch. There is no whole-transfer rollback 
 
 ## Harness
 
-`make e2e DATASET=<name>` runs the selected 128-row sample through repeated transfers, failure recovery, and empty input. `make e2e-all` repeats this for all four datasets and both compression modes. CI runs the same eight combinations.
+`make e2e DATASET=<name>` runs the selected 128-row sample through repeated transfers, failure recovery, and empty input. `make e2e-all` repeats this for all four datasets with Snappy. CI runs the same four checks.
 
 `make load` creates the selected tables if needed and transactionally replaces the source from a full local CSV. `make seed` uses the checked-in sample instead. The sink is cleared by the transfer itself.
 

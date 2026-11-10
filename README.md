@@ -2,7 +2,7 @@
 
 A Go implementation of the pipeline in [Fast and Scalable Data Transfer Across Data Systems](https://dl.acm.org/doi/10.1145/3725294).
 
-The application copies a configured table between two PostgreSQL 17 databases. A persistent server reads the source; a persistent client writes the sink. Transfers run one at a time, with optional Snappy compression.
+The application copies a configured table between two PostgreSQL 17 databases. A persistent server reads the source; a persistent client writes the sink. Transfers run one at a time, with optional Snappy compression. The harness defaults to Snappy.
 
 ## Datasets
 
@@ -22,16 +22,16 @@ Each has a checked-in 128-row real-data sample, a PostgreSQL schema, and a trans
 Install Docker with Compose v2 and Make. Run from the repository root:
 
 ```sh
-make e2e DATASET=acs COMPRESSION=snappy
+make e2e DATASET=acs
 make e2e-all
 ```
 
-`e2e-all` checks all four samples with both compression modes. Each run loads the selected sample, verifies repeated transfers, forces a sink failure and checks recovery, tests an empty source, then leaves a verified sample behind. No dataset download is needed for these checks.
+`e2e-all` checks all four samples with Snappy. Each run loads the selected sample, verifies repeated transfers, forces a sink failure and checks recovery, tests an empty source, then leaves a verified sample behind. No dataset download is needed for these checks.
 
 ## Work interactively
 
 ```sh
-make up DATASET=lineitem COMPRESSION=snappy
+make up DATASET=lineitem
 make seed DATASET=lineitem
 make transfer DATASET=lineitem
 make verify DATASET=lineitem
@@ -55,7 +55,7 @@ Download the selected archive explicitly, extract its data as CSV, and load it:
 
 ```sh
 make fetch DATASET=acs TRANSFER_TIMEOUT=30m
-make up DATASET=acs COMPRESSION=snappy TRANSFER_TIMEOUT=30m
+make up DATASET=acs TRANSFER_TIMEOUT=30m
 make load DATASET=acs TRANSFER_TIMEOUT=30m
 make transfer DATASET=acs TRANSFER_TIMEOUT=30m
 make verify DATASET=acs TRANSFER_TIMEOUT=30m
@@ -67,7 +67,7 @@ Downloads go to `data/<dataset>.csv`; exports go to `exports/<dataset>.csv`. Dow
 To use the existing full IoT file in `data/iot.csv`:
 
 ```sh
-make up DATASET=iot COMPRESSION=snappy TRANSFER_TIMEOUT=30m
+make up DATASET=iot TRANSFER_TIMEOUT=30m
 make load DATASET=iot TRANSFER_TIMEOUT=30m
 make transfer DATASET=iot TRANSFER_TIMEOUT=30m
 make verify DATASET=iot TRANSFER_TIMEOUT=30m
@@ -90,6 +90,10 @@ Default host ports are client `8080`, source PostgreSQL `5433`, and sink Postgre
 
 `make down` retains data. `docker compose down -v` explicitly removes this project's database volumes.
 
+## Run on separate machines
+
+Use `make up-source` on the source host and `make up-target` on the target host, with `SERVER_ADDR` pointing to the source IP and port. Bind the source transfer and database ports to the experiment interface. See the [two-host guide](docs/multi-machine.md) for complete Compose and native CloudLab commands.
+
 ## Tests and documentation
 
 ```sh
@@ -97,9 +101,10 @@ make test           # Go race tests and vet; requires Go 1.26
 make test-postgres  # live adapter and scalar round-trip tests
 ```
 
-CI runs these checks plus the four-dataset/two-compression E2E matrix. Both adapters support NULL and all [row scalar types](docs/row-v1.md#field-encodings).
+CI runs these checks plus the four-dataset Snappy E2E matrix. Both adapters support NULL and all [row scalar types](docs/row-v1.md#field-encodings).
 
 - [Architecture](docs/architecture.md): lifecycle, HTTP API, and failure behavior.
 - [Configuration](docs/configuration.md): dataset selection, settings, and environment variables.
+- [Two-host deployment](docs/multi-machine.md): separate source/target hosts, with or without containers.
 - [Component guide](docs/README.md): protocol, codecs, adapters, pools, and queues.
 - [Dataset guide](testdata/README.md): schemas, source archives, and fixture checksums.

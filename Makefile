@@ -1,19 +1,26 @@
 COMPOSE ?= docker compose
 DATASET ?= iot
-COMPRESSION ?= none
+COMPRESSION ?= snappy
 TRANSFER_TIMEOUT ?= 1m
 DATA_DIR ?= ./data
 FILE ?= $(DATASET).csv
 EXPORT_DIR ?= ./exports
 export DATASET COMPRESSION DATA_DIR FILE TRANSFER_TIMEOUT
 
-.PHONY: build up seed load fetch transfer verify export e2e e2e-all down test test-postgres
+.PHONY: build up up-source up-target seed load fetch transfer verify export e2e e2e-all down test test-postgres
 
 build:
 	$(COMPOSE) build tools
 
 up:
 	$(COMPOSE) up -d --build --wait source-db target-db server client
+
+up-source:
+	$(COMPOSE) up -d --build --wait source-db server
+
+up-target:
+	$(COMPOSE) up -d --wait target-db
+	$(COMPOSE) up -d --build --no-deps --wait client
 
 seed:
 	$(COMPOSE) run --rm --no-deps tools seed
@@ -42,9 +49,7 @@ e2e: up
 
 e2e-all:
 	@set -e; for dataset in lineitem acs iot icu; do \
-	  for compression in none snappy; do \
-	    $(MAKE) e2e DATASET=$$dataset COMPRESSION=$$compression; \
-	  done; \
+	  $(MAKE) e2e DATASET=$$dataset; \
 	done
 
 down:

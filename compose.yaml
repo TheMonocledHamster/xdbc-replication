@@ -4,7 +4,7 @@ x-app: &app
   environment: &app-env
     CONFIG_PATH: testdata/${DATASET:-iot}/transfer.json
     DATA_FILE: /data/${FILE:-${DATASET:-iot}.csv}
-    COMPRESSION: ${COMPRESSION:-none}
+    COMPRESSION: ${COMPRESSION:-snappy}
     TRANSFER_TIMEOUT: ${TRANSFER_TIMEOUT:-1m}
   init: true
   healthcheck:
@@ -29,14 +29,14 @@ services:
   source-db:
     <<: *postgres
     ports:
-      - "127.0.0.1:${SOURCE_POSTGRES_PORT:-5433}:5432"
+      - "${SOURCE_DB_BIND_IP:-127.0.0.1}:${SOURCE_POSTGRES_PORT:-5433}:5432"
     volumes:
       - source_data:/var/lib/postgresql/data
 
   target-db:
     <<: *postgres
     ports:
-      - "127.0.0.1:${TARGET_POSTGRES_PORT:-5434}:5432"
+      - "${TARGET_DB_BIND_IP:-127.0.0.1}:${TARGET_POSTGRES_PORT:-5434}:5432"
     volumes:
       - target_data:/var/lib/postgresql/data
 
@@ -45,8 +45,10 @@ services:
     command: ["server"]
     environment:
       <<: *app-env
-      DATABASE_URL: postgres://postgres:postgres@source-db:5432/xdbc_test?sslmode=disable
+      DATABASE_URL: ${SOURCE_DATABASE_URL:-postgres://postgres:postgres@source-db:5432/xdbc_test?sslmode=disable}
       CLIENT_URL: http://localhost:8080
+    ports:
+      - "${SERVER_BIND_IP:-127.0.0.1}:${SERVER_PORT:-9000}:9000"
     depends_on:
       source-db:
         condition: service_healthy
@@ -56,11 +58,11 @@ services:
     command: ["client"]
     environment:
       <<: *app-env
-      DATABASE_URL: postgres://postgres:postgres@target-db:5432/xdbc_test?sslmode=disable
-      SERVER_ADDR: server:9000
+      DATABASE_URL: ${TARGET_DATABASE_URL:-postgres://postgres:postgres@target-db:5432/xdbc_test?sslmode=disable}
+      SERVER_ADDR: ${SERVER_ADDR:-server:9000}
       CLIENT_URL: http://localhost:8080
     ports:
-      - "127.0.0.1:${CLIENT_PORT:-8080}:8080"
+      - "${CLIENT_BIND_IP:-127.0.0.1}:${CLIENT_PORT:-8080}:8080"
     depends_on:
       target-db:
         condition: service_healthy
@@ -78,10 +80,10 @@ services:
       disable: true
     environment:
       <<: *app-env
-      SOURCE_DATABASE_URL: postgres://postgres:postgres@source-db:5432/xdbc_test?sslmode=disable
-      TARGET_DATABASE_URL: postgres://postgres:postgres@target-db:5432/xdbc_test?sslmode=disable
-      CLIENT_URL: http://client:8080
-      SERVER_URL: http://server:8080
+      SOURCE_DATABASE_URL: ${SOURCE_DATABASE_URL:-postgres://postgres:postgres@source-db:5432/xdbc_test?sslmode=disable}
+      TARGET_DATABASE_URL: ${TARGET_DATABASE_URL:-postgres://postgres:postgres@target-db:5432/xdbc_test?sslmode=disable}
+      CLIENT_URL: ${CLIENT_URL:-http://client:8080}
+      SERVER_URL: ${SERVER_URL:-http://server:8080}
 
 volumes:
   source_data:
