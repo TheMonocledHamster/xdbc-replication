@@ -113,27 +113,66 @@ func (p *pipeline) encode(c Config, decompress bool) error {
 	return compression.StartCompressStage(p.ctx, workers, p.first, p.second, p.pool, decompress, codec)
 }
 
+// handshakeAll runs one handshake per connection simultaneously, ensuring they all agree
+func handshakeAll(ctx context.Context, conns []net.Conn,
+	handshake func(context.Context, net.Conn) (network.Config, error)) (network.Config, error) {
+	cfgs := make([]network.Config, len(conns))
+	g, gctx := errgroup.WithContext(ctx)
+
+	// Each connection does its handshake
+	for i, conn := range conns {
+		g.Go(func() (err error) { cfgs[i], err = handshake(gctx, conn); return err })
+	}
+	if err := g.Wait(); err != nil {
+		return network.Config{}, err
+	}
+
+	// If any connection somehow negotiated a different config, we have a problem
+	for _, cfg := range cfgs[1:] {
+		if cfg != cfgs[0] {
+			return network.Config{}, errors.New("connections negotiated different configurations")
+		}
+	}
+	return cfgs[0], nil
+}
+
+func closeAll(conns []net.Conn) {
+	for _, conn := range conns {
+		conn.Close()
+	}
+}
+
 // ServeTransfer uses a fresh database connection and pipeline for each client.
-func ServeTransfer(ctx context.Context, conn net.Conn, databaseURL string, c Config) error {
+// conns are the session's TCP connections, one per network worker (see
+// AcceptConns); ServeTransfer closes them.
+func ServeTransfer(ctx context.Context, conns []net.Conn, databaseURL string, c Config) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	stop := context.AfterFunc(ctx, func() { closeAll(conns) })
 	defer stop()
-	defer conn.Close()
+	defer closeAll(conns)
+	if len(conns) != c.Stages().Network {
+		return fmt.Errorf("transfer: %d connections, but workers.network is %d", len(conns), c.Stages().Network)
+	}
 	db, err := pgx.Connect(ctx, databaseURL)
 	if err != nil {
 		return err
 	}
 	defer db.Close(context.Background())
-	cfg, err := network.ServerHandshake(ctx, conn, c.Network())
+	cfg, err := handshakeAll(ctx, conns, func(ctx context.Context, conn net.Conn) (network.Config, error) {
+		return network.ServerHandshake(ctx, conn, c.Network())
+	})
 	if err != nil {
 		return err
 	}
-	// The client sends no more bytes after HELLO. Its disconnect cancels reading
+	// The client sends no more bytes after HELLO. Any disconnect cancels reading
 	// PostgreSQL too, including when the HTTP caller abandons the transfer.
-	peerDone := make(chan struct{})
-	go func() { defer close(peerDone); var b [1]byte; _, _ = conn.Read(b[:]); cancel() }()
-	defer func() { conn.Close(); <-peerDone }()
+	var peers sync.WaitGroup
+	for _, conn := range conns {
+		peers.Add(1)
+		go func() { defer peers.Done(); var b [1]byte; _, _ = conn.Read(b[:]); cancel() }()
+	}
+	defer func() { closeAll(conns); peers.Wait() }()
 	p, err := newPipeline(ctx, c, cfg.PayloadCap)
 	if err != nil {
 		return err
@@ -141,7 +180,10 @@ func ServeTransfer(ctx context.Context, conn net.Conn, databaseURL string, c Con
 	layout, _ := row.NewLayout(c.Fields)
 	p.start(p.first, func(ctx context.Context) error { return postgres.Read(ctx, db, c.Query(), layout, p.pool, p.first) })
 	p.start(p.second, func(context.Context) error { return p.encode(c, false) })
-	p.start(nil, func(ctx context.Context) error { return network.Send(ctx, conn, p.pool, p.second, cfg) })
+	// Every sender drains the shared queue and sends its own END on its connection.
+	p.startN(nil, len(conns), func(ctx context.Context, i int) error {
+		return network.Send(ctx, conns[i], p.pool, p.second, cfg)
+	})
 	return p.wait()
 }
 
@@ -169,14 +211,21 @@ func ReceiveTransfer(ctx context.Context, address, databaseURL string, c Config)
 	if err != nil {
 		return result, err
 	}
-	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
-	if err != nil {
-		return result, err
+	// Dial every connection before beginning negotiations
+	conns := make([]net.Conn, 0, c.Stages().Network)
+	defer func() { closeAll(conns) }()
+	for len(conns) < cap(conns) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
+		if err != nil {
+			return result, err
+		}
+		conns = append(conns, conn)
 	}
-	defer conn.Close()
-	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	stop := context.AfterFunc(ctx, func() { closeAll(conns) })
 	defer stop()
-	cfg, err := network.ClientHandshake(ctx, conn, c.Network())
+	cfg, err := handshakeAll(ctx, conns, func(ctx context.Context, conn net.Conn) (network.Config, error) {
+		return network.ClientHandshake(ctx, conn, c.Network())
+	})
 	if err != nil {
 		return result, err
 	}
@@ -187,7 +236,10 @@ func ReceiveTransfer(ctx context.Context, address, databaseURL string, c Config)
 	if err != nil {
 		return result, err
 	}
-	p.start(p.first, func(ctx context.Context) error { return network.Receive(ctx, conn, p.pool, p.first, cfg) })
+	// The coordinator closes p.first once every receiver wrapped up
+	p.startN(p.first, len(conns), func(ctx context.Context, i int) error {
+		return network.Receive(ctx, conns[i], p.pool, p.first, cfg)
+	})
 	p.start(p.second, func(context.Context) error { return p.encode(c, true) })
 	// Batches are independent transactions into one table, so writers share the
 	// queue with no further partitioning; row order in the sink is not defined.
