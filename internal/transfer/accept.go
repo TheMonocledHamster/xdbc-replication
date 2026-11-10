@@ -19,7 +19,7 @@ func AcceptConns(l net.Listener, n int, timeout time.Duration) (conns []net.Conn
 		}
 	}()
 
-	// Spin up the n listening threads
+	// Spin up the n listening threads sequentially
 	for len(conns) < n {
 		conn, err := l.Accept()
 		if err != nil {
@@ -30,7 +30,7 @@ func AcceptConns(l net.Listener, n int, timeout time.Duration) (conns []net.Conn
 		conns = append(conns, conn)
 		if len(conns) == 1 && deadliner != nil {
 
-			// First connection handles closing of all connections upon timeout
+			// First connection sets a deadline to accept the remaining requests
 			_ = deadliner.SetDeadline(time.Now().Add(timeout))
 		}
 	}

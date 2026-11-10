@@ -118,6 +118,27 @@ func (c Config) Query() string {
 	}
 	return "SELECT " + strings.Join(names, ", ") + " FROM " + c.Relation()
 }
+
+// PartitionQuery is Query restricted to reader part (0-based) of parts. Readers
+// split the table's heap pages, taken as 0..pages, into contiguous ranges and
+// filter on ctid, which PostgreSQL 14+ answers with a TID range scan rather
+// than reading every row. The last range has no upper bound, so rows on pages
+// added after the page count was taken are still read. A single reader gets the
+// unfiltered query.
+
+// Splits the table into contiguous ranges, filters on ctid, and issues the query for that part
+func (c Config) PartitionQuery(part, parts int, pages int64) string {
+	if parts <= 1 {
+		return c.Query()
+	}
+	lo := pages * int64(part) / int64(parts)
+	where := fmt.Sprintf(" WHERE ctid >= '(%d,0)'", lo)
+	if part < parts-1 {
+		where += fmt.Sprintf(" AND ctid < '(%d,0)'", pages*int64(part+1)/int64(parts))
+	}
+	return c.Query() + where
+}
+
 func (c Config) Network() network.Config {
 	mode := network.CompressionNone
 	if c.Compression == "snappy" {

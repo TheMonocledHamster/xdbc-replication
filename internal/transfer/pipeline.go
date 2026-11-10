@@ -178,7 +178,28 @@ func ServeTransfer(ctx context.Context, conns []net.Conn, databaseURL string, c 
 		return err
 	}
 	layout, _ := row.NewLayout(c.Fields)
-	p.start(p.first, func(ctx context.Context) error { return postgres.Read(ctx, db, c.Query(), layout, p.pool, p.first) })
+	// Parallel readers each scan a disjoint range of the table's heap pages
+	readers := c.Stages().Read
+	var pages int64
+	if readers > 1 {
+		err := db.QueryRow(ctx, "SELECT pg_relation_size($1::text::regclass) / current_setting('block_size')::bigint",
+			c.Relation()).Scan(&pages)
+		if err != nil {
+			return fmt.Errorf("transfer: size source table: %w", err)
+		}
+	}
+	seq := new(atomic.Uint64)
+	p.startN(p.first, readers, func(ctx context.Context, i int) error {
+		conn := db
+		if i > 0 {
+			var err error
+			if conn, err = pgx.Connect(ctx, databaseURL); err != nil {
+				return err
+			}
+			defer conn.Close(context.Background())
+		}
+		return postgres.ReadSeq(ctx, conn, c.PartitionQuery(i, readers, pages), layout, p.pool, p.first, seq)
+	})
 	p.start(p.second, func(context.Context) error { return p.encode(c, false) })
 	// Every sender drains the shared queue and sends its own END on its connection.
 	p.startN(nil, len(conns), func(ctx context.Context, i int) error {

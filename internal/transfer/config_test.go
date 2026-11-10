@@ -60,6 +60,36 @@ func TestWorkersDefaultToOneAndSizePool(t *testing.T) {
 	}
 }
 
+func TestPartitionQueryCoversPagesOnce(t *testing.T) {
+	t.Setenv("COMPRESSION", "snappy")
+	c, err := LoadConfig("../../testdata/iot/transfer.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.PartitionQuery(0, 1, 1000); got != c.Query() {
+		t.Fatalf("a single reader must scan the whole table unfiltered, got %q", got)
+	}
+	// 10 pages over 3 readers: [0,3) [3,6) [6,∞) — adjacent, no gaps or overlap,
+	// and the last range is open-ended.
+	for part, want := range []string{
+		" WHERE ctid >= '(0,0)' AND ctid < '(3,0)'",
+		" WHERE ctid >= '(3,0)' AND ctid < '(6,0)'",
+		" WHERE ctid >= '(6,0)'",
+	} {
+		if got := c.PartitionQuery(part, 3, 10); got != c.Query()+want {
+			t.Errorf("part %d = %q, want suffix %q", part, got, want)
+		}
+	}
+	// More readers than pages leaves some ranges empty but still valid, and the
+	// last one still catches everything beyond.
+	if got := c.PartitionQuery(1, 4, 2); got != c.Query()+" WHERE ctid >= '(0,0)' AND ctid < '(1,0)'" {
+		t.Errorf("sparse range = %q", got)
+	}
+	if got := c.PartitionQuery(3, 4, 0); got != c.Query()+" WHERE ctid >= '(0,0)'" {
+		t.Errorf("empty table, last reader = %q", got)
+	}
+}
+
 func TestTimeout(t *testing.T) {
 	for _, value := range []string{"", "30m", "0s", "-1s", "invalid"} {
 		t.Run(value, func(t *testing.T) {

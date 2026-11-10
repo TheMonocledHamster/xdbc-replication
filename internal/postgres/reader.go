@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/TheMonocledHamster/xdbc-replication/internal/format/row"
 	"github.com/TheMonocledHamster/xdbc-replication/internal/pool"
@@ -22,6 +23,19 @@ func Read(
 	layout *row.Layout,
 	p *pool.Pool,
 	out queue.Queue,
+) error {
+	return ReadSeq(ctx, conn, query, layout, p, out, new(atomic.Uint64))
+}
+
+// Effectively a Read of a subset of data for one of several parallel readers
+func ReadSeq(
+	ctx context.Context,
+	conn *pgx.Conn,
+	query string,
+	layout *row.Layout,
+	p *pool.Pool,
+	out queue.Queue,
+	seq *atomic.Uint64,
 ) error {
 	// Figure out how many complete rows fit in one buffer.
 	capacity, err := layout.RowsPerBuffer(p.PayloadCap())
@@ -46,7 +60,6 @@ func Read(
 	bufferID := -1
 	var buffer []byte
 	count := 0
-	var sequence uint64
 	var nextRecord uint64
 
 	// If the reader exits while owning a buffer, return it.
@@ -65,7 +78,7 @@ func Read(
 		usedBytes := count * layout.RowSize()
 
 		header := pool.BufferHeader{
-			Seq:             sequence,
+			Seq:             seq.Add(1) - 1,
 			NextRecord:      nextRecord + uint64(count),
 			RecordCount:     uint32(count),
 			PayloadLen:      uint32(usedBytes),
@@ -81,7 +94,6 @@ func Read(
 		bufferID = -1
 		buffer = nil
 		nextRecord += uint64(count)
-		sequence++
 		count = 0
 		return nil
 	}
