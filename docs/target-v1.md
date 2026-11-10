@@ -25,6 +25,8 @@ The table must already exist, with compatible column types and names matching th
 
 `Consume` requires uncompressed buffers with matching payload and uncompressed lengths. It releases each popped buffer after success or failure. It does not close its input queue or manage network connections.
 
+Several `Consume` calls may share one `Writer` and one input queue. Each in-flight batch takes its own `database/sql` connection and transaction, so the runtime limits the sink's open connections to `workers.write`. Batches commit in no particular order, and a failed batch does not stop the others from committing before the session is cancelled.
+
 The [runtime](architecture.md) truncates the sink before a transfer, supplies decompressed buffers, and closes the input after upstream work finishes. After failure, the next run clears any partial data.
 
 Run `make test` for validation, NULL decoding, and rollback tests. `make test-postgres` adds live adapter tests and full scalar round trips through TCP in both compression modes. `make e2e` checks the persistent commands with the real IoT sample.
