@@ -163,6 +163,8 @@ func ReceiveTransfer(ctx context.Context, address, databaseURL string, c Config)
 		return result, err
 	}
 	defer db.Close()
+	// Each write worker commits one batch per transaction on its own connection.
+	db.SetMaxOpenConns(c.Stages().Write)
 	writer, err := target.New(db, target.Config{Schema: c.Schema, Table: c.Table, Fields: c.Fields})
 	if err != nil {
 		return result, err
@@ -187,7 +189,9 @@ func ReceiveTransfer(ctx context.Context, address, databaseURL string, c Config)
 	}
 	p.start(p.first, func(ctx context.Context) error { return network.Receive(ctx, conn, p.pool, p.first, cfg) })
 	p.start(p.second, func(context.Context) error { return p.encode(c, true) })
-	p.start(nil, func(ctx context.Context) error { return writer.Consume(ctx, p.pool, p.second) })
+	// Batches are independent transactions into one table, so writers share the
+	// queue with no further partitioning; row order in the sink is not defined.
+	p.startN(nil, c.Stages().Write, func(ctx context.Context, _ int) error { return writer.Consume(ctx, p.pool, p.second) })
 	if err := p.wait(); err != nil {
 		return result, fmt.Errorf("transfer: %w", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	rowfmt "github.com/TheMonocledHamster/xdbc-replication/internal/format/row"
 	"github.com/TheMonocledHamster/xdbc-replication/internal/pool"
@@ -266,6 +267,82 @@ func TestConsumeRejectsCompressedBatchAndReleasesBuffer(t *testing.T) {
 	}
 	if err := p.Release(reused); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Several workers may consume one queue through one Writer: every batch is
+// committed exactly once and every buffer returns to the pool.
+func TestConsumeConcurrentWorkers(t *testing.T) {
+	w, state := newTestWriter(t)
+	const batches, workers, buffers = 100, 4, 8
+	p, err := pool.New(pool.Config{NumBuffers: buffers, PayloadCap: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := queue.New(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	produced := make(chan error, 1)
+	go func() { // a small pool forces producers to wait for consumers to release
+		defer close(q)
+		for i := 0; i < batches; i++ {
+			id, err := p.Acquire(ctx)
+			if err != nil {
+				produced <- err
+				return
+			}
+			b, _ := p.Buffer(id)
+			payload := encodedRows(t, struct {
+				id   int32
+				name string
+			}{int32(i), "x"})
+			(pool.BufferHeader{RecordCount: 1, PayloadLen: uint32(len(payload)), UncompressedLen: uint32(len(payload))}).Encode(b)
+			copy(b[pool.HeaderSize:], payload)
+			if err := q.Push(ctx, id); err != nil {
+				produced <- err
+				return
+			}
+		}
+		produced <- nil
+	}()
+
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); errs <- w.Consume(ctx, p, q) }()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("Consume() error = %v", err)
+		}
+	}
+	if err := <-produced; err != nil {
+		t.Fatal(err)
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.commit != batches || state.rollback != 0 {
+		t.Errorf("commits/rollbacks = %d/%d, want %d/0", state.commit, state.rollback, batches)
+	}
+	seen := map[int64]bool{}
+	for _, r := range state.rows {
+		seen[r[0].(int64)] = true
+	}
+	if len(state.rows) != batches || len(seen) != batches {
+		t.Errorf("copied %d rows (%d distinct), want %d distinct", len(state.rows), len(seen), batches)
+	}
+	for i := 0; i < buffers; i++ {
+		if _, err := p.Acquire(ctx); err != nil {
+			t.Fatalf("buffer leaked: %v", err)
+		}
 	}
 }
 
