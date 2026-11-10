@@ -12,8 +12,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// Starts the Compress/Decompress stage with `workers` worker threads
-// Switch `isDecompress` to true to create a Decompress stage (versus Compress)
+// StartCompressStage runs workers until input is drained or a worker fails.
+// isDecompress selects decoding; the coordinator owns queue closure.
 func StartCompressStage(ctx context.Context, workers int,
 	input queue.Queue, output queue.Queue, p *pool.Pool,
 	isDecompress bool, codec Codec) error {
@@ -45,6 +45,7 @@ func compressStage(ctx context.Context, input queue.Queue,
 	output queue.Queue, p *pool.Pool, isDecompress bool,
 	codec Codec) error {
 
+	scratch := make([]byte, codec.MaxEncodedLen(p.PayloadCap()))
 	for {
 		// Pick new buffer id from queue
 		id, err := input.Pop(ctx)
@@ -55,13 +56,13 @@ func compressStage(ctx context.Context, input queue.Queue,
 			return err
 		}
 		// Handle that buffer's contents
-		if err := consumeBuffer(ctx, id, output, p, isDecompress, codec); err != nil {
+		if err := consumeBuffer(ctx, id, output, p, isDecompress, codec, scratch); err != nil {
 			return err
 		}
 	}
 }
 
-func consumeBuffer(ctx context.Context, id int, output queue.Queue, p *pool.Pool, isDecompress bool, codec Codec) error {
+func consumeBuffer(ctx context.Context, id int, output queue.Queue, p *pool.Pool, isDecompress bool, codec Codec, scratch []byte) error {
 	errLabel := "compress"
 	if isDecompress {
 		errLabel = "decompress"
@@ -98,8 +99,8 @@ func consumeBuffer(ctx context.Context, id int, output queue.Queue, p *pool.Pool
 		return fmt.Errorf("%s: buffer %d payload length %d exceeds actual buffer size", errLabel, id, h.PayloadLen)
 	}
 
-	// If the input is uncompressed, there's no work for us to do (hooray!)
-	if h.Compression == uint8(protocol.CompressionNone) {
+	// Decompression passes uncompressed fallback batches through unchanged.
+	if isDecompress && h.Compression == uint8(protocol.CompressionNone) {
 		err := output.Push(ctx, id)
 		if err != nil {
 			p.Release(id)
@@ -109,17 +110,17 @@ func consumeBuffer(ctx context.Context, id int, output queue.Queue, p *pool.Pool
 	}
 
 	// Check for Codec mismatches
-	if h.Compression != uint8(codec.ID()) {
+	if (isDecompress && h.Compression != uint8(codec.ID())) || (!isDecompress && h.Compression != uint8(protocol.CompressionNone)) {
 		p.Release(id)
 		return fmt.Errorf("%s: buffer header declared compression %d, but codec is compression %d", errLabel, h.Compression, codec.ID())
 	}
-	compErr := doCompression(ctx, id, output, p, codec, isDecompress)
+	compErr := doCompression(ctx, id, output, p, codec, isDecompress, scratch)
 
 	return compErr
 }
 
 func doCompression(ctx context.Context, inputID int,
-	output queue.Queue, p *pool.Pool, codec Codec, isDecompress bool) error {
+	output queue.Queue, p *pool.Pool, codec Codec, isDecompress bool, scratch []byte) error {
 	srcBuf, err := p.Buffer(inputID)
 	if err != nil {
 		p.Release(inputID)
@@ -157,8 +158,6 @@ func doCompression(ctx context.Context, inputID int,
 
 	dstH := pool.DecodeHeader(dstBuf)
 	if isDecompress {
-		// TODO: Ensure Read stage chunks up input in a way uncompressed length < p.cfg.PayloadCap
-		// For now, assuming Read chunked things so decompressed length of inputs fits in one buffer
 		decompressedBytes, err := codec.Decompress(dstBuf[pool.HeaderSize:], srcBuf[pool.HeaderSize:srcEnd])
 		if err != nil {
 			p.Release(inputID)
@@ -176,7 +175,7 @@ func doCompression(ctx context.Context, inputID int,
 		dstH.Compression = uint8(protocol.CompressionNone)
 		dstH.PayloadLen = uint32(decompressedBytes)
 	} else {
-		compressedBytes, err := codec.Compress(dstBuf[pool.HeaderSize:], srcBuf[pool.HeaderSize:srcEnd])
+		compressedBytes, err := codec.Compress(scratch, srcBuf[pool.HeaderSize:srcEnd])
 		// Some random error, stop now
 		if err != nil && !errors.Is(err, io.ErrShortBuffer) {
 			p.Release(inputID)
@@ -192,6 +191,7 @@ func doCompression(ctx context.Context, inputID int,
 			dstH.PayloadLen = srcH.PayloadLen
 		} else {
 			// All good!
+			copy(dstBuf[pool.HeaderSize:], scratch[:compressedBytes])
 			dstH.Compression = uint8(codec.ID())
 			dstH.PayloadLen = uint32(compressedBytes)
 		}

@@ -1,0 +1,9 @@
+{
+  "name": "icu",
+  "archive_url": "https://tubcloud.tu-berlin.de/s/M3aeptL8R5ekWSD/download?path=%2F&files=inputeventsm.csv.tar.gz",
+  "archive_member": "inputeventsm.csv",
+  "full_header": false,
+  "sample_rows": 128,
+  "sample_sha256": "5a029adeeeb3cd8a187297d022588608236bfb39baf0ed1fcf617c7f18f304b5",
+  "artifact_revision": "b5092474d1bb9f8dda139d97ca2941507a78e321"
+}
