@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TheMonocledHamster/xdbc-replication/internal/compression"
@@ -48,17 +49,32 @@ func newPipeline(ctx context.Context, c Config, capacity int) (*pipeline, error)
 	return &pipeline{ctx: ctx, cancel: cancel, group: g, pool: p, first: a, second: b}, nil
 }
 func (p *pipeline) start(out queue.Queue, stage func(context.Context) error) {
-	p.group.Go(func() error {
-		err := stage(p.ctx)
-		if err != nil {
-			p.failure.Do(func() { p.err = err })
-			p.cancel()
-		}
-		if out != nil {
-			close(out)
-		}
-		return err
-	})
+	p.startN(out, 1, func(ctx context.Context, _ int) error { return stage(ctx) })
+}
+
+// Run n workers of one logical stage. The last worker to exit closes out.
+func (p *pipeline) startN(out queue.Queue, n int, stage func(ctx context.Context, worker int) error) {
+	var remaining atomic.Int32
+	remaining.Store(int32(n))
+	for i := 0; i < n; i++ {
+		// Start a worker
+		p.group.Go(func() error {
+			err := stage(p.ctx, i)
+
+			// If something's gone off, cancel the stage.
+			if err != nil {
+				p.failure.Do(func() { p.err = err })
+				p.cancel()
+			}
+
+			// IF the last worker to exit, close the relevant queue
+			// I don't anticipate scenarios where a worker exits early and triggers this
+			if remaining.Add(-1) == 0 && out != nil {
+				close(out)
+			}
+			return err
+		})
+	}
 }
 func (p *pipeline) wait() error {
 	err := p.group.Wait()
@@ -89,8 +105,12 @@ func (p *pipeline) encode(c Config, decompress bool) error {
 			}
 		}
 	}
+	workers := c.Stages().Compress
+	if decompress {
+		workers = c.Stages().Decompress
+	}
 	codec, _ := compression.ByID(compression.Snappy)
-	return compression.StartCompressStage(p.ctx, 1, p.first, p.second, p.pool, decompress, codec)
+	return compression.StartCompressStage(p.ctx, workers, p.first, p.second, p.pool, decompress, codec)
 }
 
 // ServeTransfer uses a fresh database connection and pipeline for each client.
