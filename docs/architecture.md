@@ -23,7 +23,7 @@ source-db → server → TCP → client → target-db
 ## One transfer
 
 1. The client accepts `POST /transfer` and reserves its single transfer slot.
-2. It opens the sink, connects to the server, and negotiates transport settings.
+2. It opens the sink, connects to the server (one TCP connection per network worker), and negotiates transport settings on each connection.
 3. It truncates the sink table after a successful handshake.
 4. Both sides run their pipeline stages concurrently:
 
@@ -35,7 +35,27 @@ source-db → server → TCP → client → target-db
 5. The server sends END after successfully producing and sending all batches. The client requires END and waits for downstream writes to finish.
 6. The client counts the sink rows, returns the result, and releases the transfer slot.
 
-There is one worker per stage and one TCP connection. Uncompressed transfers bypass the codec. Snappy transfers may send individual batches uncompressed when compression does not reduce their size.
+By default there is one worker per stage and one TCP connection; [Parallel stages](#parallel-stages) describes running more. Uncompressed transfers bypass the codec. Snappy transfers may send individual batches uncompressed when compression does not reduce their size.
+
+## Parallel stages
+
+The `workers` setting in the [shared configuration](configuration.md#workers) runs several workers per stage. Workers of one stage share that stage's input queue, and each batch goes to exactly one of them, so no stage needs to know how many peers it has. Queues, the pool, and ownership rules are unchanged.
+
+| Stage | How the work is divided |
+|---|---|
+| Read | The server asks PostgreSQL for the table's size in heap pages and gives each reader a contiguous page range. A reader filters on `ctid`, which PostgreSQL 14 and later answers with a TID range scan. The last range has no upper bound, so rows on pages added after the size was read are still included. Each reader uses its own connection; the first reuses the session's. One reader scans the whole table without a filter |
+| Compress / decompress | Workers pull batches from the shared queue. Each has its own scratch buffer |
+| Network | The client opens `workers.network` connections and handshakes each. The server accepts that many for one session, then runs one sender per connection on the shared queue. Every connection ends with its own END, and the coordinator closes the receive stage's output after the last receiver has seen its END |
+| Write | Writers pull batches from the shared queue and commit each on its own connection. The sink connection limit equals the writer count |
+
+The client dials every connection before any handshake, because the server accepts a whole session before it answers the first HELLO. Handshakes then run concurrently and must all agree.
+
+Consequences of dividing the work this way:
+
+- **No ordering.** Batches pass through different workers and connections, so the sink receives them in no defined order. Verification sorts both sides. Header sequence numbers are unique across readers; `NextRecord` counts each reader's own rows.
+- **No shared source snapshot.** Each reader has its own connection and snapshot. The source table must not change during a transfer.
+- **Agreement on connections.** The connection count is not negotiated; see [Workers](configuration.md#workers).
+- **Failure semantics are unchanged.** A failing worker cancels the session, its peers stop, and queued buffers are released. A stage's output closes only after its last worker exits, so a failed stage never looks like a clean end of input.
 
 ## HTTP API
 
@@ -57,7 +77,7 @@ Readiness checks database connectivity, not whether fixture tables exist. Run `m
 
 Stages exchange buffer IDs through bounded queues. A successful push transfers ownership to the next stage. A stage releases buffers it cannot forward; senders and sink writers release buffers after use.
 
-The coordinator cancels the session on a stage error, waits for workers, and releases queued buffers. Producers close their own output queues. The original stage error is retained for reporting, and a cancelled source does not send a successful END.
+The coordinator cancels the session on a stage error, waits for workers, and releases queued buffers. Producers close their own output queues; a stage with several workers closes its output when the last one exits. The original stage error is retained for reporting, and a cancelled source does not send a successful END.
 
 The sink commits one transaction per batch. There is no whole-transfer rollback or automatic retry: a failure can leave partial rows. Both processes remain available, and the next request clears the sink before writing again. A server log saying the source was sent does not confirm that the sink committed; the client's response reports transfer completion.
 

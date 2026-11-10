@@ -4,8 +4,8 @@ Start with the [project README](../README.md) to run the application.
 
 | Guide | Covers |
 |---|---|
-| [Architecture](architecture.md) | Services, HTTP API, transfer lifecycle, and errors |
-| [Configuration](configuration.md) | Shared schema, runtime settings, and buffer sizing |
+| [Architecture](architecture.md) | Services, HTTP API, transfer lifecycle, parallel stages, and errors |
+| [Configuration](configuration.md) | Shared schema, runtime settings, worker counts, and buffer sizing |
 | [Two-host deployment](multi-machine.md) | Separate source/target hosts with Compose or native binaries |
 | [Source adapter](../internal/postgres/README.md) | Reading PostgreSQL rows into buffers |
 | [Sink adapter](target-v1.md) | Writing buffers through PostgreSQL COPY |

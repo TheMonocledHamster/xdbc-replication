@@ -13,7 +13,7 @@ There is no `NoneCodec`: `ByID` currently constructs only the Snappy codec. The 
 
 `Codec` exposes `ID`, `MaxEncodedLen`, `Compress`, and `Decompress`. Methods write into caller-provided storage and return the number of bytes written or an error. Snappy compression needs a destination large enough for `MaxEncodedLen`, even if the final result is smaller.
 
-`StartCompressStage` consumes IDs from an input queue and forwards output IDs. Set `isDecompress` to select the direction. It waits for its workers and returns an error if a worker fails; the coordinator owns queue closure.
+`StartCompressStage` consumes IDs from an input queue and forwards output IDs. Set `isDecompress` to select the direction. It runs the requested number of workers, all reading the same input queue, waits for them, and returns an error if one fails; the coordinator owns queue closure. The runtime takes the count from `workers.compress` on the server and `workers.decompress` on the client. Output order across workers is not defined.
 
 Compression uses one reusable scratch buffer per worker and a second pooled buffer for output. If the result is not smaller, it copies the original payload and marks it uncompressed. Decompression passes uncompressed batches through unchanged; Snappy batches are decoded and checked against `UncompressedLen`.
 

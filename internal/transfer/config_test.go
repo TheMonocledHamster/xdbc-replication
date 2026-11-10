@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
@@ -57,6 +58,35 @@ func TestWorkersDefaultToOneAndSizePool(t *testing.T) {
 	c.PoolSize = 100
 	if c.Validate() == nil {
 		t.Fatal("accepted negative worker count")
+	}
+}
+
+// Each dataset's transfer_multi.json must stay a copy of its transfer.json that
+// differs only in worker counts and the pool sized for them.
+func TestMultiWorkerFixturesMatchSingleWorker(t *testing.T) {
+	t.Setenv("COMPRESSION", "snappy")
+	for _, name := range []string{"acs", "icu", "iot", "lineitem"} {
+		t.Run(name, func(t *testing.T) {
+			single, err := LoadConfig("../../testdata/" + name + "/transfer.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			multi, err := LoadConfig("../../testdata/" + name + "/transfer_multi.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			w := multi.Stages()
+			if w.Read < 2 || w.Compress < 2 || w.Network < 2 || w.Decompress < 2 || w.Write < 2 {
+				t.Fatalf("multi-worker fixture has a single-worker stage: %+v", w)
+			}
+			if multi.PoolSize != multi.MinPool() {
+				t.Errorf("pool_size = %d; the fixture should sit at the minimum, %d", multi.PoolSize, multi.MinPool())
+			}
+			multi.Workers, multi.PoolSize = single.Workers, single.PoolSize
+			if !reflect.DeepEqual(single, multi) {
+				t.Fatalf("transfer_multi.json differs from transfer.json beyond workers and pool_size:\n%+v\n%+v", single, multi)
+			}
+		})
 	}
 }
 

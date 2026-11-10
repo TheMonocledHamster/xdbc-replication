@@ -1,0 +1,91 @@
+{
+  "schema": "public",
+  "table": "lineitem_sf10",
+  "compression": "snappy",
+  "buffer_size": 65536,
+  "pool_size": 15,
+  "queue_capacity": 2,
+  "workers": {"read": 3, "compress": 3, "network": 2, "decompress": 3, "write": 3},
+  "fields": [
+    {
+      "name": "l_orderkey",
+      "type": "BIGINT",
+      "size": 8
+    },
+    {
+      "name": "l_partkey",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "l_suppkey",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "l_linenumber",
+      "type": "INT",
+      "size": 4
+    },
+    {
+      "name": "l_quantity",
+      "type": "NUMERIC",
+      "size": 16
+    },
+    {
+      "name": "l_extendedprice",
+      "type": "NUMERIC",
+      "size": 16
+    },
+    {
+      "name": "l_discount",
+      "type": "NUMERIC",
+      "size": 16
+    },
+    {
+      "name": "l_tax",
+      "type": "NUMERIC",
+      "size": 16
+    },
+    {
+      "name": "l_returnflag",
+      "type": "CHAR",
+      "size": 1
+    },
+    {
+      "name": "l_linestatus",
+      "type": "CHAR",
+      "size": 1
+    },
+    {
+      "name": "l_shipdate",
+      "type": "DATE",
+      "size": 4
+    },
+    {
+      "name": "l_commitdate",
+      "type": "DATE",
+      "size": 4
+    },
+    {
+      "name": "l_receiptdate",
+      "type": "DATE",
+      "size": 4
+    },
+    {
+      "name": "l_shipinstruct",
+      "type": "STRING",
+      "size": 26
+    },
+    {
+      "name": "l_shipmode",
+      "type": "STRING",
+      "size": 11
+    },
+    {
+      "name": "l_comment",
+      "type": "STRING",
+      "size": 45
+    }
+  ]
+}

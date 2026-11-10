@@ -4,6 +4,8 @@ Use the same checkout, dataset configuration, and timeout on both hosts. The exa
 
 The examples use source IP `10.10.1.1` and target IP `10.10.1.2` on a private experiment network. Substitute your assigned addresses. The target must reach source TCP port `9000`; the harness also needs source PostgreSQL port `5433` for loading and verification.
 
+To run several workers per stage, set `workers` in the shared configuration, or export `TRANSFER_CONFIG=transfer_multi` alongside `DATASET` on both hosts. Both hosts must use the same configuration: `workers.network` is the number of connections the target opens to source port `9000`, which needs no additional ports, and the source expects exactly that many. See [Workers](configuration.md#workers).
+
 ## With Compose
 
 On the source host, from the repository root:

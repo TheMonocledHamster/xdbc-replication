@@ -1,11 +1,13 @@
 COMPOSE ?= docker compose
 DATASET ?= iot
 COMPRESSION ?= snappy
+# Base name of the dataset's config in testdata/<dataset>/: transfer or transfer_multi.
+TRANSFER_CONFIG ?= transfer
 TRANSFER_TIMEOUT ?= 1m
 DATA_DIR ?= ./data
 FILE ?= $(DATASET).csv
 EXPORT_DIR ?= ./exports
-export DATASET COMPRESSION DATA_DIR FILE TRANSFER_TIMEOUT
+export DATASET COMPRESSION TRANSFER_CONFIG DATA_DIR FILE TRANSFER_TIMEOUT
 
 .PHONY: build up up-source up-target seed load fetch transfer verify export e2e e2e-all down test test-postgres
 

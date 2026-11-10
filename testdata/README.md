@@ -1,6 +1,6 @@
 # Paper datasets
 
-Each directory contains `schema.sql`, `transfer.json`, `dataset.json`, and `sample.csv`. The sample has 128 data records plus a header using actual PostgreSQL column names. Normal local and CI checks use only these samples.
+Each directory contains `schema.sql`, `transfer.json`, `transfer_multi.json` (the same transfer with several workers per stage), `dataset.json`, and `sample.csv`. The sample has 128 data records plus a header using actual PostgreSQL column names. Normal local and CI checks use only these samples.
 
 | Selection | Source table | Columns | Original archive member |
 |---|---|---|---|

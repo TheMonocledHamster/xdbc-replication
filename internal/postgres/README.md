@@ -8,6 +8,12 @@ The query's column count and PostgreSQL type identifiers must match the configur
 
 The reader fills complete rows, emits full batches and a final partial batch, and records sequence, row count, and used byte lengths. Empty input emits no data buffers. It clears reused rows before encoding them and releases any buffer it still owns on error.
 
+## Parallel readers
+
+`ReadSeq` is `Read` for one of several parallel readers. The readers share an atomic sequence counter, so every batch they emit has a distinct `Seq`; `Read` calls it with a private counter. `NextRecord` counts only the rows of its own reader.
+
+The adapter does not split the table. The runtime builds one query per reader that selects a disjoint range of heap pages by `ctid`, and gives each reader its own connection; see [parallel stages](../../docs/architecture.md#parallel-stages). Callers that supply their own queries must make sure the readers' rows do not overlap.
+
 ## Supported values
 
 | PostgreSQL type | Row type |
