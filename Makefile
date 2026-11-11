@@ -5,7 +5,11 @@ TRANSFER_TIMEOUT ?= 1m
 DATA_DIR ?= ./data
 FILE ?= $(DATASET).csv
 EXPORT_DIR ?= ./exports
-export DATASET COMPRESSION DATA_DIR FILE TRANSFER_TIMEOUT
+SINK_TYPE ?= postgres
+CSV_OUTPUT_PATH ?= /exports/$(DATASET).csv
+LOCAL_UID ?= $(shell id -u)
+LOCAL_GID ?= $(shell id -g)
+export DATASET COMPRESSION DATA_DIR FILE TRANSFER_TIMEOUT SINK_TYPE CSV_OUTPUT_PATH LOCAL_UID LOCAL_GID
 
 .PHONY: build up up-source up-target seed load fetch transfer verify export e2e e2e-all down test test-postgres
 
@@ -13,12 +17,14 @@ build:
 	$(COMPOSE) build tools
 
 up:
+	mkdir -p exports
 	$(COMPOSE) up -d --build --wait source-db target-db server client
 
 up-source:
 	$(COMPOSE) up -d --build --wait source-db server
 
 up-target:
+	mkdir -p exports
 	$(COMPOSE) up -d --wait target-db
 	$(COMPOSE) up -d --build --no-deps --wait client
 

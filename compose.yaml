@@ -56,13 +56,18 @@ services:
   client:
     <<: *app
     command: ["client"]
+    user: "${LOCAL_UID:-65532}:${LOCAL_GID:-65532}"
     environment:
       <<: *app-env
       DATABASE_URL: ${TARGET_DATABASE_URL:-postgres://postgres:postgres@target-db:5432/xdbc_test?sslmode=disable}
       SERVER_ADDR: ${SERVER_ADDR:-server:9000}
+      SINK_TYPE: ${SINK_TYPE:-postgres}
+      CSV_OUTPUT_PATH: ${CSV_OUTPUT_PATH:-/exports/${DATASET:-iot}.csv}
       CLIENT_URL: http://localhost:8080
     ports:
       - "${CLIENT_BIND_IP:-127.0.0.1}:${CLIENT_PORT:-8080}:8080"
+    volumes:
+      - ./exports:/exports
     depends_on:
       target-db:
         condition: service_healthy
@@ -74,6 +79,7 @@ services:
     profiles: ["tools"]
     volumes:
       - ${DATA_DIR:-./data}:/data:ro,z
+      - ./exports:/exports:ro
     entrypoint: ["harness"]
     command: ["verify"]
     healthcheck:
@@ -82,6 +88,8 @@ services:
       <<: *app-env
       SOURCE_DATABASE_URL: ${SOURCE_DATABASE_URL:-postgres://postgres:postgres@source-db:5432/xdbc_test?sslmode=disable}
       TARGET_DATABASE_URL: ${TARGET_DATABASE_URL:-postgres://postgres:postgres@target-db:5432/xdbc_test?sslmode=disable}
+      SINK_TYPE: ${SINK_TYPE:-postgres}
+      CSV_OUTPUT_PATH: ${CSV_OUTPUT_PATH:-/exports/${DATASET:-iot}.csv}
       CLIENT_URL: ${CLIENT_URL:-http://client:8080}
       SERVER_URL: ${SERVER_URL:-http://server:8080}
 
