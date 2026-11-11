@@ -9,11 +9,16 @@ import (
 )
 
 func (w *Writer) decodeRow(encoded []byte) ([]any, error) {
-	values := make([]any, len(w.fields))
-	for i, field := range w.fields {
-		null, err := w.layout.IsNull(encoded, i)
+	return decodeRowValues(w.layout, w.fields, encoded)
+}
+
+// decodeRowValues shares tuple decoding between the PostgreSQL and CSV writers.
+func decodeRowValues(layout *row.Layout, fields []row.Field, encoded []byte) ([]any, error) {
+	values := make([]any, len(fields))
+	for i, field := range fields {
+		null, err := layout.IsNull(encoded, i)
 		if err == nil && !null {
-			values[i], err = w.decodeField(encoded, i, field.Type)
+			values[i], err = decodeField(layout, encoded, i, field.Type)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("column %d (%s): %w", i, field.Name, err)
@@ -22,41 +27,41 @@ func (w *Writer) decodeRow(encoded []byte) ([]any, error) {
 	return values, nil
 }
 
-func (w *Writer) decodeField(encoded []byte, col int, dtype row.Dtype) (any, error) {
+func decodeField(layout *row.Layout, encoded []byte, col int, dtype row.Dtype) (any, error) {
 	switch dtype {
 	case row.Int16:
-		return w.layout.GetInt16(encoded, col)
+		return layout.GetInt16(encoded, col)
 	case row.Int32:
-		return w.layout.GetInt32(encoded, col)
+		return layout.GetInt32(encoded, col)
 	case row.Int64:
-		return w.layout.GetInt64(encoded, col)
+		return layout.GetInt64(encoded, col)
 	case row.Real:
-		return w.layout.GetReal(encoded, col)
+		return layout.GetReal(encoded, col)
 	case row.Double:
-		return w.layout.GetDouble(encoded, col)
+		return layout.GetDouble(encoded, col)
 	case row.Bool:
-		return w.layout.GetBool(encoded, col)
+		return layout.GetBool(encoded, col)
 	case row.String:
-		return w.layout.GetString(encoded, col)
+		return layout.GetString(encoded, col)
 	case row.Numeric:
-		return w.layout.GetNumeric(encoded, col)
+		return layout.GetNumeric(encoded, col)
 	case row.Char:
-		v, err := w.layout.GetChar(encoded, col)
+		v, err := layout.GetChar(encoded, col)
 		return string([]byte{v}), err
 	case row.Date:
-		v, err := w.layout.GetDate(encoded, col)
+		v, err := layout.GetDate(encoded, col)
 		if err != nil {
 			return nil, err
 		}
 		return decodeTemporal(dtype, int64(v))
 	case row.Timestamp:
-		v, err := w.layout.GetTimestamp(encoded, col)
+		v, err := layout.GetTimestamp(encoded, col)
 		if err != nil {
 			return nil, err
 		}
 		return decodeTemporal(dtype, v)
 	case row.TimestampTZ:
-		v, err := w.layout.GetTimestampTZ(encoded, col)
+		v, err := layout.GetTimestampTZ(encoded, col)
 		if err != nil {
 			return nil, err
 		}
