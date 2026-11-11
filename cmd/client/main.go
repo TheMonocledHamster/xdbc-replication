@@ -28,12 +28,23 @@ func run() error {
 		return err
 	}
 	url := os.Getenv("DATABASE_URL")
-	if url == "" {
-		return errors.New("DATABASE_URL is required")
+	sinkType := transfer.Env("SINK_TYPE", "postgres")
+	csvPath := os.Getenv("CSV_OUTPUT_PATH")
+	if sinkType != "postgres" && sinkType != "csv" {
+		return errors.New("SINK_TYPE must be postgres or csv")
+	}
+	if sinkType == "postgres" && url == "" {
+		return errors.New("DATABASE_URL is required for the PostgreSQL sink")
+	}
+	if sinkType == "csv" && csvPath == "" {
+		return errors.New("CSV_OUTPUT_PATH is required for the CSV sink")
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	ready := func(ctx context.Context) error {
+		if sinkType == "csv" {
+			return nil
+		}
 		db, err := target.OpenPostgres(ctx, url)
 		if err != nil {
 			return err
@@ -41,7 +52,14 @@ func run() error {
 		return db.Close()
 	}
 	run := func(request context.Context) (transfer.Result, error) {
-		result, err := transfer.ReceiveTransfer(request, transfer.Env("SERVER_ADDR", "localhost:9000"), url, c)
+		var result transfer.Result
+		var err error
+		address := transfer.Env("SERVER_ADDR", "localhost:9000")
+		if sinkType == "csv" {
+			result, err = transfer.ReceiveTransferCSV(request, address, csvPath, c)
+		} else {
+			result, err = transfer.ReceiveTransfer(request, address, url, c)
+		}
 		if err != nil {
 			slog.Error("transfer failed", "error", err)
 		} else {
@@ -49,6 +67,6 @@ func run() error {
 		}
 		return result, err
 	}
-	slog.Info("client listening", "compression", c.Compression)
+	slog.Info("client listening", "compression", c.Compression, "sink", sinkType)
 	return transfer.RunHTTP(ctx, transfer.Env("HTTP_ADDR", ":8080"), transfer.Handler(timeout, ready, run))
 }
