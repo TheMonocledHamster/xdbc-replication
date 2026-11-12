@@ -9,7 +9,38 @@ import (
 )
 
 func (w *Writer) decodeRow(encoded []byte) ([]any, error) {
-	return decodeRowValues(w.layout, w.fields, encoded)
+	values, err := decodeRowValues(w.layout, w.fields, encoded)
+	if err != nil {
+		return nil, err
+	}
+	// Binary COPY needs typed NUMERIC and temporal values, including infinity.
+	for i, field := range w.fields {
+		if values[i] == nil {
+			continue
+		}
+		switch field.Type {
+		case row.Numeric:
+			var value pgtype.Numeric
+			err = value.Scan(values[i])
+			values[i] = value
+		case row.Date:
+			var value pgtype.Date
+			err = value.Scan(values[i])
+			values[i] = value
+		case row.Timestamp:
+			var value pgtype.Timestamp
+			err = value.Scan(values[i])
+			values[i] = value
+		case row.TimestampTZ:
+			var value pgtype.Timestamptz
+			err = value.Scan(values[i])
+			values[i] = value
+		}
+		if err != nil {
+			return nil, fmt.Errorf("column %d (%s): %w", i, field.Name, err)
+		}
+	}
+	return values, nil
 }
 
 // decodeRowValues shares tuple decoding between the PostgreSQL and CSV writers.
@@ -72,7 +103,7 @@ func decodeField(layout *row.Layout, encoded []byte, col int, dtype row.Dtype) (
 }
 
 // pgx's temporal codecs understand PostgreSQL epochs, range limits, and infinity.
-// Decode their binary representation into database/sql values for lib/pq COPY:
+// Decode their binary representation into values shared by CSV formatting and COPY:
 // finite values become time.Time; infinity becomes its PostgreSQL spelling.
 // This avoids UnixNano overflow when handling wide PostgreSQL date ranges.
 func decodeTemporal(dtype row.Dtype, value int64) (any, error) {

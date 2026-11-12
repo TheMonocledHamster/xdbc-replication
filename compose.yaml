@@ -67,7 +67,7 @@ services:
     ports:
       - "${CLIENT_BIND_IP:-127.0.0.1}:${CLIENT_PORT:-8080}:8080"
     volumes:
-      - ./exports:/exports
+      - ./exports:/exports:z
     depends_on:
       target-db:
         condition: service_healthy
@@ -79,7 +79,7 @@ services:
     profiles: ["tools"]
     volumes:
       - ${DATA_DIR:-./data}:/data:ro,z
-      - ./exports:/exports:ro
+      - ./exports:/exports:ro,z
     entrypoint: ["harness"]
     command: ["verify"]
     healthcheck:

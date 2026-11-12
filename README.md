@@ -49,7 +49,7 @@ curl -X POST http://localhost:8080/transfer
 # {"rows":128,"elapsed_ms":12}
 ```
 
-The API runs synchronously. A concurrent request receives HTTP 409. Each transfer clears the selected sink table and commits batches separately, so failures can leave partial data until the next transfer.
+The API runs synchronously. A concurrent request receives HTTP 409. Each PostgreSQL transfer clears the selected sink table, then streams all batches through one COPY transaction. Failed transfers roll back all inserts; the preceding truncation remains committed, leaving the table empty.
 
 ## Full datasets
 

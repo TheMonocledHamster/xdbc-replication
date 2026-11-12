@@ -49,7 +49,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		return db.Close()
+		return db.Close(context.Background())
 	}
 	run := func(request context.Context) (transfer.Result, error) {
 		var result transfer.Result

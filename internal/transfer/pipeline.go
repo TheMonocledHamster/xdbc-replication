@@ -14,8 +14,8 @@ import (
 	"github.com/TheMonocledHamster/xdbc-replication/internal/format/row"
 	"github.com/TheMonocledHamster/xdbc-replication/internal/network"
 	"github.com/TheMonocledHamster/xdbc-replication/internal/pool"
-	"github.com/TheMonocledHamster/xdbc-replication/internal/postgres"
 	"github.com/TheMonocledHamster/xdbc-replication/internal/queue"
+	"github.com/TheMonocledHamster/xdbc-replication/internal/source"
 	"github.com/TheMonocledHamster/xdbc-replication/internal/target"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/sync/errgroup"
@@ -120,7 +120,7 @@ func ServeTransfer(ctx context.Context, conn net.Conn, databaseURL string, c Con
 		return err
 	}
 	layout, _ := row.NewLayout(c.Fields)
-	p.start(p.first, func(ctx context.Context) error { return postgres.Read(ctx, db, c.Query(), layout, p.pool, p.first) })
+	p.start(p.first, func(ctx context.Context) error { return source.Read(ctx, db, c.Query(), layout, p.pool, p.first) })
 	p.start(p.second, func(context.Context) error { return p.encode(c, false) })
 	p.start(nil, func(ctx context.Context) error { return network.Send(ctx, conn, p.pool, p.second, cfg) })
 	return p.wait()
@@ -131,8 +131,8 @@ type Result struct {
 	ElapsedMS int64 `json:"elapsed_ms"`
 }
 
-// ReceiveTransfer replaces the sink using the current per-batch target writer.
-// Earlier batches may remain if a later batch fails.
+// ReceiveTransfer truncates the sink, then inserts all received batches in one
+// COPY transaction. Failed transfers roll back inserts; truncation is separate.
 func ReceiveTransfer(ctx context.Context, address, databaseURL string, c Config) (Result, error) {
 	var result Result
 	started := time.Now()
@@ -143,21 +143,21 @@ func ReceiveTransfer(ctx context.Context, address, databaseURL string, c Config)
 	if err != nil {
 		return result, err
 	}
-	defer db.Close()
+	defer db.Close(context.Background())
 	writer, err := target.New(db, target.Config{Schema: c.Schema, Table: c.Table, Fields: c.Fields})
 	if err != nil {
 		return result, err
 	}
 	result, err = receiveBatches(ctx, address, c,
 		func(ctx context.Context) error {
-			_, err := db.ExecContext(ctx, "TRUNCATE TABLE "+c.Relation())
+			_, err := db.Exec(ctx, "TRUNCATE TABLE "+c.Relation())
 			return err
 		}, writer.Consume)
 	if err != nil {
 		return result, err
 	}
 	result.ElapsedMS = time.Since(started).Milliseconds()
-	err = db.QueryRowContext(ctx, "SELECT count(*) FROM "+c.Relation()).Scan(&result.Rows)
+	err = db.QueryRow(ctx, "SELECT count(*) FROM "+c.Relation()).Scan(&result.Rows)
 	return result, err
 }
 

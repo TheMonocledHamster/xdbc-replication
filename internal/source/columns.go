@@ -1,8 +1,9 @@
-package postgres
+package source
 
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 
 	"github.com/TheMonocledHamster/xdbc-replication/internal/format/row"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -75,7 +76,17 @@ func makeColumn(layout *row.Layout, col int, dtype row.Dtype, oid uint32, format
 		return bind(v, &v.Valid, func(record []byte) error { return layout.PutReal(record, col, v.Float32) })
 	case row.Double:
 		v := new(pgtype.Float8)
-		return bind(v, &v.Valid, func(record []byte) error { return layout.PutDouble(record, col, v.Float64) })
+		adapter := bind(v, &v.Valid, func(record []byte) error { return layout.PutDouble(record, col, v.Float64) })
+		if format == pgtype.TextFormatCode {
+			adapter.postScan = func(raw []byte) {
+				// Text has no NaN payload bits. Match PostgreSQL's canonical NaN rather
+				// than Go's parser payload; binary queries retain the original bits.
+				if string(raw) == "NaN" {
+					v.Float64 = math.Float64frombits(0x7ff8000000000000)
+				}
+			}
+		}
+		return adapter
 	case row.Bool:
 		v := new(pgtype.Bool)
 		return bind(v, &v.Valid, func(record []byte) error { return layout.PutBool(record, col, v.Bool) })

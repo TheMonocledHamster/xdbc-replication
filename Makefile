@@ -1,4 +1,4 @@
-COMPOSE ?= docker compose
+COMPOSE ?= $(if $(shell command -v docker 2>/dev/null),docker compose,podman compose)
 DATASET ?= iot
 COMPRESSION ?= snappy
 TRANSFER_TIMEOUT ?= 1m
@@ -70,4 +70,4 @@ test-postgres:
 	XDBC_TEST_DATABASE_URL="postgres://postgres:postgres@localhost:$(or $(SOURCE_POSTGRES_PORT),5433)/xdbc_test?sslmode=disable" \
 	XDBC_TEST_SOURCE_DATABASE_URL="postgres://postgres:postgres@localhost:$(or $(SOURCE_POSTGRES_PORT),5433)/xdbc_test?sslmode=disable" \
 	XDBC_TEST_TARGET_DATABASE_URL="postgres://postgres:postgres@localhost:$(or $(TARGET_POSTGRES_PORT),5434)/xdbc_test?sslmode=disable" \
-	go test -race -count=1 -timeout 60s ./internal/postgres/... ./internal/target/... ./internal/transfer/...
+	go test -race -count=1 -timeout 60s ./internal/source/... ./internal/target/... ./internal/transfer/...
