@@ -2,7 +2,7 @@
 
 A Go implementation of the pipeline in [Fast and Scalable Data Transfer Across Data Systems](https://dl.acm.org/doi/10.1145/3725294).
 
-The application copies a configured table between two PostgreSQL 17 databases. A persistent server reads the source; a persistent client writes the sink. Transfers run one at a time, with optional Snappy compression. The harness defaults to Snappy.
+The application copies a configured table from PostgreSQL 17 and writes it to either a PostgreSQL table or a CSV file. A persistent server reads the source; a persistent client writes the sink. Transfers run one at a time, with optional Snappy compression. The harness defaults to Snappy and the PostgreSQL sink.
 
 ## Datasets
 
@@ -39,6 +39,8 @@ make export DATASET=lineitem
 ```
 
 The export is `exports/lineitem.csv`, with headers and deterministic row ordering. Use the same dataset in subsequent commands. `make up` switches both application processes to that dataset; tables for other datasets remain in the databases.
+
+To use the XDBC CSV sink, start client with `SINK_TYPE=csv`. This will write the rows to `exports/acs.csv`. The harness loads that file into its target table to verify row counts and values. The CSV sink output has no header, matching the configured row schema order. 
 
 You can trigger the active client directly:
 
@@ -107,4 +109,5 @@ CI runs these checks plus the four-dataset Snappy E2E matrix. Both adapters supp
 - [Configuration](docs/configuration.md): dataset selection, settings, and environment variables.
 - [Two-host deployment](docs/multi-machine.md): separate source/target hosts, with or without containers.
 - [Component guide](docs/README.md): protocol, codecs, adapters, pools, and queues.
+- [CSV sink guide](docs/csv-sink-v1.md): CSV output format and client configuration.
 - [Dataset guide](testdata/README.md): schemas, source archives, and fixture checksums.

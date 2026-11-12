@@ -26,6 +26,7 @@ type harness struct {
 	config               transfer.Config
 	source, sink         *pgx.Conn
 	clientURL, serverURL string
+	sinkType, csvPath    string
 }
 
 func main() {
@@ -64,7 +65,7 @@ func run() error {
 		return err
 	}
 	defer sink.Close(context.Background())
-	h := harness{d, d.Config, source, sink, clientURL, transfer.Env("SERVER_URL", "http://server:8080")}
+	h := harness{d, d.Config, source, sink, clientURL, transfer.Env("SERVER_URL", "http://server:8080"), transfer.Env("SINK_TYPE", "postgres"), transfer.Env("CSV_OUTPUT_PATH", "/exports/"+d.Name+".csv")}
 	switch os.Args[1] {
 	case "seed":
 		return h.seed(ctx)
@@ -165,6 +166,11 @@ func (h harness) transfer(ctx context.Context, status int) error {
 	return nil
 }
 func (h harness) verify(ctx context.Context) error {
+	if h.sinkType == "csv" {
+		if err := h.loadCSVOutput(ctx); err != nil {
+			return err
+		}
+	}
 	fingerprint := func(db *pgx.Conn) (string, int64, error) {
 		if _, err := db.Exec(ctx, "SET TIME ZONE 'UTC'; SET DateStyle TO 'ISO'"); err != nil {
 			return "", 0, err
@@ -185,6 +191,25 @@ func (h harness) verify(ctx context.Context) error {
 		return fmt.Errorf("%s source and sink differ (rows: %d/%d, SHA-256: %s/%s)", h.dataset.Name, sourceRows, sinkRows, source, sink)
 	}
 	fmt.Printf("verified %s: %d rows, %d columns, SHA-256 %s\n", h.dataset.Name, sourceRows, len(h.config.Fields), source)
+	return nil
+}
+
+// loadCSVOutput loads the CSV sink into the harness target
+// so the existing row-count and checksum validation can be reused.
+func (h harness) loadCSVOutput(ctx context.Context) error {
+	file, err := os.Open(h.csvPath)
+	if err != nil {
+		return fmt.Errorf("open CSV sink output %q: %w", h.csvPath, err)
+	}
+	defer file.Close()
+	if _, err := h.sink.Exec(ctx, "TRUNCATE TABLE "+h.config.Relation()); err != nil {
+		return err
+	}
+	tag, err := h.sink.PgConn().CopyFrom(ctx, file, "COPY "+h.config.Relation()+" FROM STDIN WITH (FORMAT csv)")
+	if err != nil {
+		return fmt.Errorf("load CSV sink output: %w", err)
+	}
+	fmt.Printf("loaded CSV sink output for verification: %d rows\n", tag.RowsAffected())
 	return nil
 }
 func health(ctx context.Context, url string) error {
@@ -222,33 +247,35 @@ func (h harness) e2e(ctx context.Context) error {
 	if err := h.verify(ctx); err != nil {
 		return err
 	}
-	// NOT VALID permits adding the constraint to a populated table; new writes
-	// still fail. A failed request must not poison the persistent processes.
-	constraint := "ALTER TABLE " + h.config.Relation()
-	if _, err := h.sink.Exec(ctx, constraint+" ADD CONSTRAINT harness_reject CHECK (false) NOT VALID"); err != nil {
-		return err
-	}
-	defer func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		h.sink.Exec(cleanup, constraint+" DROP CONSTRAINT IF EXISTS harness_reject")
-	}()
-	if err := h.transfer(ctx, http.StatusInternalServerError); err != nil {
-		return err
-	}
-	for _, url := range []string{h.clientURL, h.serverURL} {
-		if err := health(ctx, url); err != nil {
+	if h.sinkType == "postgres" {
+		// NOT VALID permits adding the constraint to a populated table; new writes
+		// still fail. A failed request must not poison the persistent processes.
+		constraint := "ALTER TABLE " + h.config.Relation()
+		if _, err := h.sink.Exec(ctx, constraint+" ADD CONSTRAINT harness_reject CHECK (false) NOT VALID"); err != nil {
 			return err
 		}
-	}
-	if _, err := h.sink.Exec(ctx, constraint+" DROP CONSTRAINT harness_reject"); err != nil {
-		return err
-	}
-	if err := h.transfer(ctx, http.StatusOK); err != nil {
-		return err
-	}
-	if err := h.verify(ctx); err != nil {
-		return err
+		defer func() {
+			cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			h.sink.Exec(cleanup, constraint+" DROP CONSTRAINT IF EXISTS harness_reject")
+		}()
+		if err := h.transfer(ctx, http.StatusInternalServerError); err != nil {
+			return err
+		}
+		for _, url := range []string{h.clientURL, h.serverURL} {
+			if err := health(ctx, url); err != nil {
+				return err
+			}
+		}
+		if _, err := h.sink.Exec(ctx, constraint+" DROP CONSTRAINT harness_reject"); err != nil {
+			return err
+		}
+		if err := h.transfer(ctx, http.StatusOK); err != nil {
+			return err
+		}
+		if err := h.verify(ctx); err != nil {
+			return err
+		}
 	}
 	// Empty sources must still send END and clear the sink.
 	if _, err := h.source.Exec(ctx, "TRUNCATE TABLE "+h.config.Relation()); err != nil {

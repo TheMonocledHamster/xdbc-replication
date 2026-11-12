@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -147,6 +148,61 @@ func ReceiveTransfer(ctx context.Context, address, databaseURL string, c Config)
 	if err != nil {
 		return result, err
 	}
+	result, err = receiveBatches(ctx, address, c,
+		func(ctx context.Context) error {
+			_, err := db.ExecContext(ctx, "TRUNCATE TABLE "+c.Relation())
+			return err
+		}, writer.Consume)
+	if err != nil {
+		return result, err
+	}
+	result.ElapsedMS = time.Since(started).Milliseconds()
+	err = db.QueryRowContext(ctx, "SELECT count(*) FROM "+c.Relation()).Scan(&result.Rows)
+	return result, err
+}
+
+// ReceiveTransferCSV receives a transfer into a CSV file. The file is created
+// or truncated only after the network handshake succeeds.
+func ReceiveTransferCSV(ctx context.Context, address, outputPath string, c Config) (Result, error) {
+	var result Result
+	started := time.Now()
+	if strings.TrimSpace(outputPath) == "" {
+		return result, errors.New("transfer: CSV output path is required")
+	}
+	var writer *target.CSVWriter
+	result, err := receiveBatches(ctx, address, c,
+		func(context.Context) error {
+			var err error
+			writer, err = target.OpenCSVFile(outputPath, target.CSVConfig{Fields: c.Fields})
+			return err
+		}, func(ctx context.Context, p *pool.Pool, input queue.Queue) error {
+			if writer == nil {
+				return errors.New("transfer: CSV writer was not initialized")
+			}
+			return writer.Consume(ctx, p, input)
+		})
+	if writer != nil {
+		closeErr := writer.Close()
+		if err != nil || closeErr != nil {
+			return result, errors.Join(err, closeErr)
+		}
+		result.Rows = writer.RowsWritten()
+	}
+	if err != nil {
+		return result, err
+	}
+	result.ElapsedMS = time.Since(started).Milliseconds()
+	return result, err
+}
+
+// receiveBatches owns the common network, decompression, and buffer-pool path
+// for every sink. prepare is the unique setup setp for each sink.
+func receiveBatches(ctx context.Context, address string, c Config, prepare func(context.Context) error,
+	consume func(context.Context, *pool.Pool, queue.Queue) error) (Result, error) {
+	var result Result
+	if err := c.Validate(); err != nil {
+		return result, err
+	}
 	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
 	if err != nil {
 		return result, err
@@ -158,8 +214,10 @@ func ReceiveTransfer(ctx context.Context, address, databaseURL string, c Config)
 	if err != nil {
 		return result, err
 	}
-	if _, err := db.ExecContext(ctx, "TRUNCATE TABLE "+c.Relation()); err != nil {
-		return result, err
+	if prepare != nil {
+		if err := prepare(ctx); err != nil {
+			return result, err
+		}
 	}
 	p, err := newPipeline(ctx, c, cfg.PayloadCap)
 	if err != nil {
@@ -167,11 +225,9 @@ func ReceiveTransfer(ctx context.Context, address, databaseURL string, c Config)
 	}
 	p.start(p.first, func(ctx context.Context) error { return network.Receive(ctx, conn, p.pool, p.first, cfg) })
 	p.start(p.second, func(context.Context) error { return p.encode(c, true) })
-	p.start(nil, func(ctx context.Context) error { return writer.Consume(ctx, p.pool, p.second) })
+	p.start(nil, func(ctx context.Context) error { return consume(ctx, p.pool, p.second) })
 	if err := p.wait(); err != nil {
 		return result, fmt.Errorf("transfer: %w", err)
 	}
-	result.ElapsedMS = time.Since(started).Milliseconds()
-	err = db.QueryRowContext(ctx, "SELECT count(*) FROM "+c.Relation()).Scan(&result.Rows)
-	return result, err
+	return result, nil
 }

@@ -9,6 +9,7 @@ Start with the [project README](../README.md) to run the application.
 | [Two-host deployment](multi-machine.md) | Separate source/target hosts with Compose or native binaries |
 | [Source adapter](../internal/postgres/README.md) | Reading PostgreSQL rows into buffers |
 | [Sink adapter](target-v1.md) | Writing buffers through PostgreSQL COPY |
+| [CSV sink](csv-sink-v1.md) | Writing received row buffers to CSV |
 | [Row format](row-v1.md) | Field encodings, NULLs, and payload validation |
 | [Compression](compression-v1.md) | Snappy stages and uncompressed fallback |
 | [Network protocol](network-v1.md) | Handshake, frames, and completion rules |
