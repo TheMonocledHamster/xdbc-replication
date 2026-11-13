@@ -8,6 +8,8 @@ The sink supports NULL and every [row scalar type](row-v1.md#field-encodings): S
 
 NULL bitmap entries become SQL NULL, distinct from zero, false, and empty text. NUMERIC text is decoded to `pgtype.Numeric` for binary COPY, retaining decimal scale without float conversion. Floating-point NaN, infinity, and signed zero are preserved.
 
+The PostgreSQL decoder produces COPY-ready values in a single column pass. Temporal values go directly from their binary row representation to typed pgx values, without intermediate CSV-formatting values. CSV keeps its separate formatting decoder.
+
 Temporal decoding uses pgx codecs for PostgreSQL epochs, range checks, and infinity values, then supplies typed `pgtype` values to binary COPY. Finite dates and timestamps preserve wide year ranges, BC dates, and microseconds. TIMESTAMP retains civil time; TIMESTAMPTZ retains the instant independently of the sink session time zone. CHAR remains a single byte.
 
 The table must already exist, with compatible column types and names matching the ordered field configuration. The adapter does not create tables or perform a database schema preflight. PostgreSQL rejects incompatible writes.
