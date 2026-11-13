@@ -68,7 +68,17 @@ DATASET=iot BENCH_BIND_IP=10.10.1.1 docker compose --profile bench up -d --build
 docker compose run --build --rm -e SOURCE_HOST=10.10.1.1 -e DATASETS=iot bench
 ```
 
+Before the long run:
+
+1. **Do a 3-minute check** on node B: `docker compose run --build --rm -e SOURCE_HOST=10.10.1.1 -e DATASETS=acs -e ROUNDS=1 bench`
+   (start node A with `DATASET=acs` for it). Expect `MODE: two machines`, four `ok` lines and `verified acs`.
+2. **Look at the round trip** it prints (`round trip to the source database … ms`). That's the delay every native
+   fetch pays. It is also saved in the results, so write down which link you used.
+3. **Run inside `tmux`** (`tmux new -s bench`, detach with Ctrl-b d, come back with `tmux attach -t bench`),
+   so a dropped SSH connection doesn't kill a 2-hour run.
+
 - One dataset per run. To switch, rerun node A's command with the new `DATASET`, then node B's.
+  If they don't match, the run stops after the first transfer and says so.
 - Node B must reach node A on ports 5435 (database), 9000 and 8090 (our server).
 - Bind to the private address between the nodes (on CloudLab usually `10.10.1.x`), not
   `0.0.0.0`: the benchmark database uses the password `postgres`.

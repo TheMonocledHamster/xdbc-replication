@@ -40,6 +40,7 @@ type benchResult struct {
 	Latency  string  `json:"latency_ms,omitempty"`
 	RTTms    float64 `json:"source_rtt_ms,omitempty"`
 	TwoNode  bool    `json:"two_node,omitempty"`
+	Source   string  `json:"source_host,omitempty"`
 	Time     string  `json:"time"`
 }
 
@@ -78,7 +79,7 @@ func (h harness) bench(ctx context.Context) error {
 			RunID: transfer.Env("BENCH_RUN_ID", time.Now().UTC().Format("20060102T150405Z")), Machine: os.Getenv("BENCH_MACHINE"),
 			CPUs: runtime.NumCPU(), MemGB: memGB(), Dataset: h.dataset.Name,
 			JDBCMode: os.Getenv("BENCH_JDBC_MODE"), Latency: os.Getenv("BENCH_LATENCY_MS"),
-			TwoNode: os.Getenv("BENCH_TWO_NODE") != "",
+			TwoNode: os.Getenv("BENCH_TWO_NODE") != "", Source: os.Getenv("SOURCE_HOST"),
 		},
 	}
 	b.base.RTTms, _ = strconv.ParseFloat(os.Getenv("BENCH_SOURCE_RTT_MS"), 64)
@@ -96,9 +97,15 @@ func (h harness) bench(ctx context.Context) error {
 			return fmt.Errorf("jdbc setup: %w", err)
 		}
 	}
-	// Our PG -> PG run goes last in each round, so the target table it leaves
-	// behind is what the final SHA-256 verification checks.
+	// Order per round: ours -> CSV first, so a broken setup (for example node A's
+	// server started for another dataset) stops the run in seconds; ours -> PG last,
+	// so the target table it leaves behind is what the SHA-256 verification checks.
 	for round := 1; round <= rounds; round++ {
+		if b.systems["ours"] && b.sinks["csv"] {
+			if !b.record(round, "ours", "csv", func() (int64, error) { return b.ours(ctx, b.csvClientURL) }) && round == 1 {
+				return b.stopEarly()
+			}
+		}
 		for _, system := range []string{"native", "jdbc"} {
 			if !b.systems[system] {
 				continue
@@ -110,11 +117,10 @@ func (h harness) bench(ctx context.Context) error {
 				b.record(round, system, "csv", func() (int64, error) { return b.foreignToFile(ctx, system) })
 			}
 		}
-		if b.systems["ours"] && b.sinks["csv"] {
-			b.record(round, "ours", "csv", func() (int64, error) { return b.ours(ctx, b.csvClientURL) })
-		}
 		if b.systems["ours"] && b.sinks["pg"] {
-			b.record(round, "ours", "pg", func() (int64, error) { return b.ours(ctx, h.clientURL) })
+			if !b.record(round, "ours", "pg", func() (int64, error) { return b.ours(ctx, h.clientURL) }) && round == 1 && !b.sinks["csv"] {
+				return b.stopEarly()
+			}
 		}
 	}
 	// Empty the server-side CSV file the native/jdbc runs wrote.
@@ -137,7 +143,17 @@ func (h harness) bench(ctx context.Context) error {
 	return nil
 }
 
-func (b *benchRun) record(round int, system, sink string, run func() (int64, error)) {
+// stopEarly ends the run when our very first transfer fails: every later number
+// would come from a broken setup.
+func (b *benchRun) stopEarly() error {
+	hint := "see the error above"
+	if os.Getenv("SOURCE_HOST") != "" {
+		hint = fmt.Sprintf("check that node A started bench-server with DATASET=%s", b.h.dataset.Name)
+	}
+	return fmt.Errorf("our first transfer failed, so the run stopped early (%s)", hint)
+}
+
+func (b *benchRun) record(round int, system, sink string, run func() (int64, error)) bool {
 	start := time.Now()
 	rows, err := run()
 	r := b.base
@@ -161,6 +177,7 @@ func (b *benchRun) record(round int, system, sink string, run func() (int64, err
 		status = "FAILED: " + r.Note
 	}
 	fmt.Printf("  round %d  %-6s %s -> %-3s %8.2f s  %d rows  %s\n", round, system, "PG", strings.ToUpper(sink), r.Seconds, rows, status)
+	return r.OK
 }
 
 func (b *benchRun) ours(ctx context.Context, clientURL string) (int64, error) {
@@ -301,7 +318,7 @@ func benchSummary() error {
 		}
 		machine = fmt.Sprintf("%s %d CPUs, %.0f GB visible to Docker", r.Machine, r.CPUs, r.MemGB)
 		if r.TwoNode {
-			machine += fmt.Sprintf(", source on another machine (round trip %.2f ms)", r.RTTms)
+			machine += fmt.Sprintf(", source on another machine at %s (round trip %.2f ms)", r.Source, r.RTTms)
 		}
 		k := key{r.Dataset, r.System, r.Sink}
 		if r.OK {

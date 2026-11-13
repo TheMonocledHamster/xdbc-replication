@@ -68,8 +68,12 @@ func benchAll() error {
 	}
 	defer chownLikeParent(out)
 
-	fmt.Printf("Fig. 9b benchmark, run %s\n  datasets: %s\n  systems:  %s\n  rounds:   %s, sinks: %s\n",
-		runID, strings.Join(datasets, " "), systems, transfer.Env("BENCH_ROUNDS", "3"), transfer.Env("BENCH_SINKS", "pg,csv"))
+	mode := "one machine (databases, our server and clients all here)"
+	if host := os.Getenv("SOURCE_HOST"); host != "" {
+		mode = "two machines: source database and our server on " + host + ", everything else here"
+	}
+	fmt.Printf("Fig. 9b benchmark, run %s\n  MODE:     %s\n  datasets: %s\n  systems:  %s\n  rounds:   %s, sinks: %s\n",
+		runID, mode, strings.Join(datasets, " "), systems, transfer.Env("BENCH_ROUNDS", "3"), transfer.Env("BENCH_SINKS", "pg,csv"))
 	for _, name := range datasets {
 		if err := benchDataset(ctx, name); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
@@ -117,7 +121,7 @@ func benchDataset(ctx context.Context, name string) error {
 		return err
 	}
 	os.Setenv("BENCH_SOURCE_RTT_MS", fmt.Sprintf("%.3f", rtt))
-	fmt.Printf("== %s: source database round trip %.3f ms\n", name, rtt)
+	fmt.Printf("== %s: round trip to the source database %.3f ms\n", name, rtt)
 
 	fmt.Printf("== %s: starting our server and clients\n", name)
 	exports := filepath.Join("/exports", d.Name+".csv")
