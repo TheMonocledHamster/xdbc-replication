@@ -92,6 +92,16 @@ Default host ports are client `8080`, source PostgreSQL `5433`, and sink Postgre
 
 `make down` retains data. `docker compose down -v` explicitly removes this project's database volumes.
 
+## Benchmark (Fig. 9b)
+
+```sh
+docker compose run --build --rm bench
+```
+
+Times ours vs PostgreSQL's built-in `postgres_fdw` (and optionally JDBC) and prints a summary.
+See [`bench/README.md`](bench/README.md) for options, and
+[`docs/fig9b-investigation.md`](docs/fig9b-investigation.md) for how our results compare with the paper.
+
 ## Run on separate machines
 
 Use `make up-source` on the source host and `make up-target` on the target host, with `SERVER_ADDR` pointing to the source IP and port. Bind the source transfer and database ports to the experiment interface. See the [two-host guide](docs/multi-machine.md) for complete Compose and native CloudLab commands.

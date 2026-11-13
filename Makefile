@@ -11,7 +11,7 @@ LOCAL_UID ?= $(shell id -u)
 LOCAL_GID ?= $(shell id -g)
 export DATASET COMPRESSION DATA_DIR FILE TRANSFER_TIMEOUT SINK_TYPE CSV_OUTPUT_PATH LOCAL_UID LOCAL_GID
 
-.PHONY: build up up-source up-target seed load fetch transfer verify export e2e e2e-all down test test-postgres
+.PHONY: bench build up up-source up-target seed load fetch transfer verify export e2e e2e-all down test test-postgres
 
 build:
 	$(COMPOSE) build tools
@@ -57,6 +57,12 @@ e2e-all:
 	@set -e; for dataset in lineitem acs iot icu; do \
 	  $(MAKE) e2e DATASET=$$dataset; \
 	done
+
+# Fig. 9b benchmark (same as: docker compose run --build --rm bench). See bench/README.md.
+# Example: make bench DATASETS=all JDBC=stream
+bench:
+	DATASETS="$(DATASETS)" JDBC="$(JDBC)" ROUNDS="$(ROUNDS)" SINKS="$(SINKS)" MACHINE="$(MACHINE)" \
+	JDBC_HEAP_MB="$(JDBC_HEAP_MB)" QUERY_TIMEOUT="$(QUERY_TIMEOUT)" $(COMPOSE) run --build --rm bench
 
 down:
 	$(COMPOSE) down
