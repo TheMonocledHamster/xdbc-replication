@@ -1,0 +1,3 @@
+services:
+  target-db:
+    image: ${JDBC_IMAGE:-xdbc-target-jdbc:pg17}
