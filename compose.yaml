@@ -93,6 +93,58 @@ services:
       CLIENT_URL: ${CLIENT_URL:-http://client:8080}
       SERVER_URL: ${SERVER_URL:-http://server:8080}
 
+  # Fig. 9b benchmark, one command on any machine with Docker:
+  #   docker compose run --build --rm bench
+  # Options go in with -e, e.g. -e DATASETS=all -e JDBC=faithful. See bench/README.md.
+  # It has its own databases, so it never touches the dev stack's data.
+  bench-source:
+    <<: *postgres
+    profiles: ["bench"]
+    volumes:
+      - bench_source:/var/lib/postgresql/data
+
+  bench-target:
+    <<: *postgres
+    profiles: ["bench"]
+    image: xdbc-bench-target:local
+    build: bench/jdbc
+    volumes:
+      - bench_target:/var/lib/postgresql/data
+
+  bench:
+    <<: *app
+    profiles: ["bench"]
+    user: "0:0"
+    entrypoint: ["harness"]
+    command: ["bench-all"]
+    healthcheck:
+      disable: true
+    environment:
+      SOURCE_DATABASE_URL: postgres://postgres:postgres@bench-source:5432/xdbc_test?sslmode=disable
+      TARGET_DATABASE_URL: postgres://postgres:postgres@bench-target:5432/xdbc_test?sslmode=disable
+      TRANSFER_TIMEOUT: 60m
+      COMPRESSION: ${COMPRESSION:-snappy}
+      DATASETS: ${DATASETS:-iot}
+      JDBC: ${JDBC:-off}
+      ROUNDS: ${ROUNDS:-3}
+      SINKS: ${SINKS:-pg,csv}
+      MACHINE: ${MACHINE:-}
+      JDBC_HEAP_MB: ${JDBC_HEAP_MB:-}
+      QUERY_TIMEOUT: ${QUERY_TIMEOUT:-20m}
+    volumes:
+      - ${BENCH_DATA:-bench_data}:/data:z
+      - ./bench-results:/results:z
+      - bench_exports:/exports
+    depends_on:
+      bench-source:
+        condition: service_healthy
+      bench-target:
+        condition: service_healthy
+
 volumes:
   source_data:
   target_data:
+  bench_source:
+  bench_target:
+  bench_data:
+  bench_exports:

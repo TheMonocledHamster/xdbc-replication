@@ -44,3 +44,4 @@ data/
 exports/
 testdata/*/*.csv
 !testdata/*/sample.csv
+bench-results/

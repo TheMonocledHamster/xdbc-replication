@@ -36,11 +36,21 @@ func main() {
 }
 func run() error {
 	if len(os.Args) != 2 {
-		return errors.New("usage: harness seed|load|fetch|transfer|verify|export|e2e|health")
+		return errors.New("usage: harness seed|load|fetch|transfer|verify|export|e2e|health|bench|bench-all|bench-summary")
+	}
+	if os.Args[1] == "bench-summary" {
+		return benchSummary()
+	}
+	if os.Args[1] == "bench-all" {
+		return benchAll()
 	}
 	timeout, err := transfer.Timeout()
 	if err != nil {
 		return err
+	}
+	if os.Args[1] == "bench" {
+		// A bench run is many transfers; each one is bounded by its own timeout.
+		timeout = 24 * time.Hour
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout+time.Minute)
 	defer cancel()
@@ -83,6 +93,8 @@ func run() error {
 		return h.verify(ctx)
 	case "e2e":
 		return h.e2e(ctx)
+	case "bench":
+		return h.bench(ctx)
 	default:
 		return fmt.Errorf("unknown command %q", os.Args[1])
 	}
