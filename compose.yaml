@@ -97,11 +97,33 @@ services:
   #   docker compose run --build --rm bench
   # Options go in with -e, e.g. -e DATASETS=all -e JDBC=faithful. See bench/README.md.
   # It has its own databases, so it never touches the dev stack's data.
+  # Two machines: see "Two machines" in bench/README.md (node A runs bench-source
+  # and bench-server with BENCH_BIND_IP=0.0.0.0; node B runs bench with SOURCE_HOST).
   bench-source:
     <<: *postgres
     profiles: ["bench"]
+    ports:
+      - "${BENCH_BIND_IP:-127.0.0.1}:${BENCH_SOURCE_PORT:-5435}:5432"
     volumes:
       - bench_source:/var/lib/postgresql/data
+
+  # Our XDBC server next to the source database, for two-machine runs (node A).
+  bench-server:
+    <<: *app
+    profiles: ["bench"]
+    command: ["server"]
+    environment:
+      CONFIG_PATH: testdata/${DATASET:-iot}/transfer.json
+      DATABASE_URL: postgres://postgres:postgres@bench-source:5432/xdbc_test?sslmode=disable
+      COMPRESSION: ${COMPRESSION:-snappy}
+      TRANSFER_TIMEOUT: 60m
+      CLIENT_URL: http://localhost:8080
+    ports:
+      - "${BENCH_BIND_IP:-127.0.0.1}:9000:9000"
+      - "${BENCH_BIND_IP:-127.0.0.1}:8090:8080"
+    depends_on:
+      bench-source:
+        condition: service_healthy
 
   bench-target:
     <<: *postgres
@@ -131,6 +153,7 @@ services:
       MACHINE: ${MACHINE:-}
       JDBC_HEAP_MB: ${JDBC_HEAP_MB:-}
       QUERY_TIMEOUT: ${QUERY_TIMEOUT:-20m}
+      SOURCE_HOST: ${SOURCE_HOST:-}
     volumes:
       - ${BENCH_DATA:-bench_data}:/data:z
       - ./bench-results:/results:z

@@ -39,6 +39,15 @@ func benchAll() error {
 	default:
 		return fmt.Errorf("JDBC must be off, faithful or stream, not %q", mode)
 	}
+	// Two machines: the source database and our server run on node A (SOURCE_HOST),
+	// everything else here on node B, so every system's traffic crosses the network.
+	if host := os.Getenv("SOURCE_HOST"); host != "" {
+		if len(datasets) != 1 {
+			return fmt.Errorf("with SOURCE_HOST, run one dataset at a time (node A's server is started for one dataset)")
+		}
+		os.Setenv("SOURCE_DATABASE_URL", fmt.Sprintf("postgres://postgres:postgres@%s:%s/xdbc_test?sslmode=disable", host, transfer.Env("SOURCE_PORT", "5435")))
+		os.Setenv("BENCH_TWO_NODE", "1")
+	}
 	runID := transfer.Env("BENCH_RUN_ID", time.Now().UTC().Format("20060102T150405Z"))
 	out := filepath.Join("/results", runID+".jsonl")
 	// Friendly option names (docker compose run -e ROUNDS=1 ...) map onto the bench settings.
@@ -103,18 +112,37 @@ func benchDataset(ctx context.Context, name string) error {
 		return err
 	}
 
+	rtt, err := roundTrip(ctx, source)
+	if err != nil {
+		return err
+	}
+	os.Setenv("BENCH_SOURCE_RTT_MS", fmt.Sprintf("%.3f", rtt))
+	fmt.Printf("== %s: source database round trip %.3f ms\n", name, rtt)
+
 	fmt.Printf("== %s: starting our server and clients\n", name)
 	exports := filepath.Join("/exports", d.Name+".csv")
 	defer os.Remove(exports)
 	common := []string{"CONFIG_PATH=" + configPath, "COMPRESSION=" + transfer.Env("COMPRESSION", "snappy"), "TRANSFER_TIMEOUT=60m"}
+	serverAddr, serverHealth := "127.0.0.1:9000", "http://127.0.0.1:8090"
+	if host := os.Getenv("SOURCE_HOST"); host != "" {
+		serverAddr, serverHealth = host+":9000", "http://"+host+":8090"
+	}
 	procs := []struct {
 		name, bin string
 		env       []string
 		health    string
 	}{
 		{"server", "server", []string{"DATABASE_URL=" + os.Getenv("SOURCE_DATABASE_URL"), "LISTEN_ADDR=127.0.0.1:9000", "HTTP_ADDR=127.0.0.1:8090"}, "http://127.0.0.1:8090"},
-		{"client-pg", "client", []string{"DATABASE_URL=" + os.Getenv("TARGET_DATABASE_URL"), "SERVER_ADDR=127.0.0.1:9000", "SINK_TYPE=postgres", "HTTP_ADDR=127.0.0.1:8091"}, "http://127.0.0.1:8091"},
-		{"client-csv", "client", []string{"SERVER_ADDR=127.0.0.1:9000", "SINK_TYPE=csv", "CSV_OUTPUT_PATH=" + exports, "HTTP_ADDR=127.0.0.1:8092"}, "http://127.0.0.1:8092"},
+		{"client-pg", "client", []string{"DATABASE_URL=" + os.Getenv("TARGET_DATABASE_URL"), "SERVER_ADDR=" + serverAddr, "SINK_TYPE=postgres", "HTTP_ADDR=127.0.0.1:8091"}, "http://127.0.0.1:8091"},
+		{"client-csv", "client", []string{"SERVER_ADDR=" + serverAddr, "SINK_TYPE=csv", "CSV_OUTPUT_PATH=" + exports, "HTTP_ADDR=127.0.0.1:8092"}, "http://127.0.0.1:8092"},
+	}
+	if os.Getenv("SOURCE_HOST") != "" {
+		// Node A runs our server; just make sure it is up.
+		procs = procs[1:]
+		if err := waitHealthy(ctx, serverHealth, 60*time.Second); err != nil {
+			return fmt.Errorf("our server on node A is not reachable at %s; start it there with: DATASET=%s BENCH_BIND_IP=0.0.0.0 docker compose --profile bench up -d --build bench-source bench-server (%w)", serverHealth, name, err)
+		}
+		fmt.Printf("   using our server on node A (%s); it must have been started with DATASET=%s\n", serverAddr, name)
 	}
 	var running []*exec.Cmd
 	defer func() {
@@ -145,6 +173,20 @@ func benchDataset(ctx context.Context, name string) error {
 
 	fmt.Printf("== %s: timing\n", name)
 	return h.bench(ctx)
+}
+
+// roundTrip is the median time of a trivial query to the source database: the
+// network delay every postgres_fdw fetch pays.
+func roundTrip(ctx context.Context, db *pgx.Conn) (float64, error) {
+	var times []float64
+	for i := 0; i < 31; i++ {
+		start := time.Now()
+		if _, err := db.Exec(ctx, "SELECT 1"); err != nil {
+			return 0, err
+		}
+		times = append(times, float64(time.Since(start).Microseconds())/1000)
+	}
+	return median(times), nil
 }
 
 // ensureData downloads the dataset from the authors' TU Berlin share if it is missing.

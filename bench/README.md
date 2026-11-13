@@ -54,6 +54,27 @@ docker compose run --build --rm -e DATASETS=all -e JDBC=faithful -e MACHINE="xl1
 
 Rough times on an 8-core laptop: iot ≈ 15 min, `all` ≈ 1.5–2 h (lineitem is 60M rows).
 
+### Two machines
+
+To put a real network between the databases, like the authors' cluster: node A holds the
+source database and our server; node B holds the target database, our clients, native,
+JDBC and the timing. Clone the repo on both.
+
+```sh
+# node A (source side). Use node A's address on the network between the nodes.
+DATASET=iot BENCH_BIND_IP=10.10.1.1 docker compose --profile bench up -d --build --wait bench-source bench-server
+
+# node B (target side)
+docker compose run --build --rm -e SOURCE_HOST=10.10.1.1 -e DATASETS=iot bench
+```
+
+- One dataset per run. To switch, rerun node A's command with the new `DATASET`, then node B's.
+- Node B must reach node A on ports 5435 (database), 9000 and 8090 (our server).
+- Bind to the private address between the nodes (on CloudLab usually `10.10.1.x`), not
+  `0.0.0.0`: the benchmark database uses the password `postgres`.
+- Each run records the measured round trip to the source database (`source_rtt_ms`),
+  which is the delay every native fetch pays.
+
 ### Results
 
 - The run prints one line per timed run (`round 1  native PG -> PG  17.96 s  1476313 rows  ok`),

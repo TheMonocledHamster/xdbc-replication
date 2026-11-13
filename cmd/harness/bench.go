@@ -38,6 +38,8 @@ type benchResult struct {
 	Note     string  `json:"note,omitempty"`
 	JDBCMode string  `json:"jdbc_mode,omitempty"`
 	Latency  string  `json:"latency_ms,omitempty"`
+	RTTms    float64 `json:"source_rtt_ms,omitempty"`
+	TwoNode  bool    `json:"two_node,omitempty"`
 	Time     string  `json:"time"`
 }
 
@@ -76,8 +78,10 @@ func (h harness) bench(ctx context.Context) error {
 			RunID: transfer.Env("BENCH_RUN_ID", time.Now().UTC().Format("20060102T150405Z")), Machine: os.Getenv("BENCH_MACHINE"),
 			CPUs: runtime.NumCPU(), MemGB: memGB(), Dataset: h.dataset.Name,
 			JDBCMode: os.Getenv("BENCH_JDBC_MODE"), Latency: os.Getenv("BENCH_LATENCY_MS"),
+			TwoNode: os.Getenv("BENCH_TWO_NODE") != "",
 		},
 	}
+	b.base.RTTms, _ = strconv.ParseFloat(os.Getenv("BENCH_SOURCE_RTT_MS"), 64)
 	if err := h.source.QueryRow(ctx, "SELECT count(*) FROM "+h.config.Relation()).Scan(&b.sourceRows); err != nil {
 		return err
 	}
@@ -296,6 +300,9 @@ func benchSummary() error {
 			continue
 		}
 		machine = fmt.Sprintf("%s %d CPUs, %.0f GB visible to Docker", r.Machine, r.CPUs, r.MemGB)
+		if r.TwoNode {
+			machine += fmt.Sprintf(", source on another machine (round trip %.2f ms)", r.RTTms)
+		}
 		k := key{r.Dataset, r.System, r.Sink}
 		if r.OK {
 			times[k] = append(times[k], r.Seconds)
