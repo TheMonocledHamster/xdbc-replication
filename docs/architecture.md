@@ -18,7 +18,7 @@ source-db → server → TCP → client → target-db
 | `client` | Accepts HTTP requests and writes the sink | `cmd/client` |
 | `tools` | Loads, downloads, triggers, verifies, and exports the selected dataset; runs on demand | `cmd/harness` |
 
-`internal/transfer` coordinates the stages. Source and sink behavior remains in `internal/postgres` and `internal/target`, so those adapters can be replaced separately from the control API.
+`internal/transfer` coordinates the stages. Source and sink behavior remains in `internal/source` and `internal/target`, so those adapters can be replaced separately from the control API.
 
 ## One transfer
 
@@ -59,7 +59,7 @@ Stages exchange buffer IDs through bounded queues. A successful push transfers o
 
 The coordinator cancels the session on a stage error, waits for workers, and releases queued buffers. Producers close their own output queues. The original stage error is retained for reporting, and a cancelled source does not send a successful END.
 
-The sink commits one transaction per batch. There is no whole-transfer rollback or automatic retry: a failure can leave partial rows. Both processes remain available, and the next request clears the sink before writing again. A server log saying the source was sent does not confirm that the sink committed; the client's response reports transfer completion.
+The PostgreSQL sink streams all batches through one COPY statement and commits one transaction after clean end-of-input. A failure rolls back all inserted rows. The initial truncation is committed separately, so a failed transfer leaves an empty table rather than restoring its old contents. CSV failures can leave a partial file. Both processes remain available for another request; there is no automatic retry. A server log saying the source was sent does not confirm that the sink committed; the client's response reports transfer completion.
 
 ## Harness
 

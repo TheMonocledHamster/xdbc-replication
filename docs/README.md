@@ -7,7 +7,7 @@ Start with the [project README](../README.md) to run the application.
 | [Architecture](architecture.md) | Services, HTTP API, transfer lifecycle, and errors |
 | [Configuration](configuration.md) | Shared schema, runtime settings, and buffer sizing |
 | [Two-host deployment](multi-machine.md) | Separate source/target hosts with Compose or native binaries |
-| [Source adapter](../internal/postgres/README.md) | Reading PostgreSQL rows into buffers |
+| [Source adapter](../internal/source/README.md) | Reading PostgreSQL rows into buffers |
 | [Sink adapter](target-v1.md) | Writing buffers through PostgreSQL COPY |
 | [CSV sink](csv-sink-v1.md) | Writing received row buffers to CSV |
 | [Row format](row-v1.md) | Field encodings, NULLs, and payload validation |

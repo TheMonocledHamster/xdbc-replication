@@ -55,7 +55,7 @@ PayloadLen = UncompressedLen = RecordCount * RowSize()
 
 Consumers decompress first and use `ValidatePayload` to check byte length against row count. `RowAt` and `GetStringBytes` return borrowed views: stop using them when buffer ownership changes or the buffer is released.
 
-The [source](../internal/postgres/README.md) and [sink](target-v1.md) both support every type above, including NULL. `make test-postgres` checks their round trip through TCP with both compression modes, including numeric scale and temporal edge cases.
+The [source](../internal/source/README.md) and [sink](target-v1.md) both support every type above, including NULL. `make test-postgres` checks their round trip through TCP with both compression modes, including numeric scale and temporal edge cases.
 
 The bitmap replaced an older bitmap-free layout without changing `FormatRow` or the wire version. Upgrade both peers and re-encode old payloads; the handshake cannot detect that difference.
 
