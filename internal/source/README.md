@@ -1,6 +1,6 @@
 # PostgreSQL source adapter
 
-`internal/postgres.Read` executes a query through `pgx`, encodes rows into pooled buffers, and pushes their IDs downstream. The coordinator owns the connection, pool, and output queue. The reader does not create tables or close the connection or queue.
+`internal/source.Read` executes a query through `pgx`, encodes rows into pooled buffers, and pushes their IDs downstream. The coordinator owns the connection, pool, and output queue. The reader does not create tables or close the connection or queue.
 
 ## Reading a query
 

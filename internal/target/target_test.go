@@ -2,9 +2,9 @@ package target
 
 import (
 	"context"
-	"database/sql"
-	"database/sql/driver"
 	"errors"
+	"fmt"
+	"github.com/jackc/pgx/v5"
 	"reflect"
 	"strings"
 	"sync"
@@ -22,82 +22,62 @@ var testFields = []rowfmt.Field{
 }
 
 type fakeDB struct {
-	mu        sync.Mutex
-	statement string
-	rows      [][]driver.Value
-	flushes   int
-	begin     int
-	commit    int
-	rollback  int
-	execErr   error
+	statement                        string
+	rows                             [][]any
+	flushes, begin, commit, rollback int
+	execErr                          error
 }
 
-type fakeConnector struct{ state *fakeDB }
-
-func (c fakeConnector) Connect(context.Context) (driver.Conn, error) { return fakeConn{c.state}, nil }
-func (c fakeConnector) Driver() driver.Driver                        { return fakeDriver{} }
-
-type fakeDriver struct{}
-
-func (fakeDriver) Open(string) (driver.Conn, error) { return nil, errors.New("use connector") }
-
-type fakeConn struct{ state *fakeDB }
-
-func (c fakeConn) Prepare(query string) (driver.Stmt, error) {
-	c.state.mu.Lock()
-	c.state.statement = query
-	c.state.mu.Unlock()
-	return fakeStmt{c.state}, nil
-}
-func (fakeConn) Close() error { return nil }
-func (c fakeConn) Begin() (driver.Tx, error) {
-	c.state.mu.Lock()
-	c.state.begin++
-	c.state.mu.Unlock()
-	return fakeTx{c.state}, nil
+func (db *fakeDB) Begin(context.Context) (pgx.Tx, error) {
+	db.begin++
+	return &fakeTx{state: db}, nil
 }
 
-type fakeStmt struct{ state *fakeDB }
+type fakeTx struct {
+	pgx.Tx
+	state *fakeDB
+	done  bool
+}
 
-func (fakeStmt) Close() error  { return nil }
-func (fakeStmt) NumInput() int { return -1 }
-func (s fakeStmt) Exec(args []driver.Value) (driver.Result, error) {
-	s.state.mu.Lock()
-	defer s.state.mu.Unlock()
-	if s.state.execErr != nil {
-		return nil, s.state.execErr
+func (tx *fakeTx) CopyFrom(ctx context.Context, table pgx.Identifier, columns []string, source pgx.CopyFromSource) (int64, error) {
+	quoted := make([]string, len(columns))
+	for i, col := range columns {
+		quoted[i] = pgx.Identifier{col}.Sanitize()
 	}
-	if len(args) > 0 {
-		s.state.rows = append(s.state.rows, append([]driver.Value(nil), args...))
-	} else {
-		s.state.flushes++
+	tx.state.statement = "COPY " + table.Sanitize() + " (" + strings.Join(quoted, ", ") + ") FROM STDIN"
+	for source.Next() {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		values, err := source.Values()
+		if err != nil {
+			return 0, err
+		}
+		if tx.state.execErr != nil {
+			return 0, tx.state.execErr
+		}
+		tx.state.rows = append(tx.state.rows, append([]any(nil), values...))
 	}
-	return driver.RowsAffected(1), nil
+	if err := source.Err(); err != nil {
+		return 0, err
+	}
+	tx.state.flushes++
+	return int64(len(tx.state.rows)), nil
 }
-func (fakeStmt) Query([]driver.Value) (driver.Rows, error) {
-	return nil, errors.New("query not expected")
-}
-
-type fakeTx struct{ state *fakeDB }
-
-func (tx fakeTx) Commit() error {
-	tx.state.mu.Lock()
-	tx.state.commit++
-	tx.state.mu.Unlock()
-	return nil
-}
-func (tx fakeTx) Rollback() error {
-	tx.state.mu.Lock()
+func (tx *fakeTx) Commit(context.Context) error { tx.state.commit++; tx.done = true; return nil }
+func (tx *fakeTx) Rollback(context.Context) error {
+	if tx.done {
+		return pgx.ErrTxClosed
+	}
 	tx.state.rollback++
-	tx.state.mu.Unlock()
+	tx.done = true
 	return nil
 }
 
 func newTestWriter(t *testing.T) (*Writer, *fakeDB) {
 	t.Helper()
 	state := &fakeDB{}
-	db := sql.OpenDB(fakeConnector{state})
-	t.Cleanup(func() { _ = db.Close() })
+	db := state
 	w, err := New(db, Config{Schema: "public", Table: "customers", Fields: testFields})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -132,8 +112,7 @@ func encodedRows(t *testing.T, rows ...struct {
 
 func TestNewValidatesDestinationAndSchema(t *testing.T) {
 	state := &fakeDB{}
-	db := sql.OpenDB(fakeConnector{state})
-	t.Cleanup(func() { _ = db.Close() })
+	db := state
 	for _, cfg := range []Config{
 		{Table: "bad; DROP", Fields: testFields},
 		{Schema: "bad.schema", Table: "t", Fields: testFields},
@@ -165,7 +144,7 @@ func TestWriteBatchUsesCopyAndFixedWidthRows(t *testing.T) {
 	if want := `COPY "public"."customers" ("id", "name") FROM STDIN`; state.statement != want {
 		t.Errorf("statement = %q, want %q", state.statement, want)
 	}
-	wantRows := [][]driver.Value{{int64(7), "Mina"}, {int64(8), "Lee"}}
+	wantRows := [][]any{{int32(7), "Mina"}, {int32(8), "Lee"}}
 	if !reflect.DeepEqual(state.rows, wantRows) {
 		t.Errorf("copied rows = %#v, want %#v", state.rows, wantRows)
 	}
@@ -270,11 +249,15 @@ func TestConsumeRejectsCompressedBatchAndReleasesBuffer(t *testing.T) {
 	}
 }
 
-// Several workers may consume one queue through one Writer: every batch is
-// committed exactly once and every buffer returns to the pool.
+// Several workers, each with its own Writer and connection, may consume one
+// queue: every batch is written exactly once and every buffer returns to the pool.
 func TestConsumeConcurrentWorkers(t *testing.T) {
-	w, state := newTestWriter(t)
 	const batches, workers, buffers = 100, 4, 8
+	writers := make([]*Writer, workers)
+	states := make([]*fakeDB, workers)
+	for i := range writers {
+		writers[i], states[i] = newTestWriter(t)
+	}
 	p, err := pool.New(pool.Config{NumBuffers: buffers, PayloadCap: 64})
 	if err != nil {
 		t.Fatal(err)
@@ -314,7 +297,7 @@ func TestConsumeConcurrentWorkers(t *testing.T) {
 	errs := make(chan error, workers)
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
-		go func() { defer wg.Done(); errs <- w.Consume(ctx, p, q) }()
+		go func() { defer wg.Done(); errs <- writers[i].Consume(ctx, p, q) }()
 	}
 	wg.Wait()
 	close(errs)
@@ -327,17 +310,19 @@ func TestConsumeConcurrentWorkers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	if state.commit != batches || state.rollback != 0 {
-		t.Errorf("commits/rollbacks = %d/%d, want %d/0", state.commit, state.rollback, batches)
+	seen := map[int32]bool{}
+	total := 0
+	for _, state := range states {
+		if state.rollback != 0 {
+			t.Errorf("rollbacks = %d, want 0", state.rollback)
+		}
+		for _, r := range state.rows {
+			seen[r[0].(int32)] = true
+		}
+		total += len(state.rows)
 	}
-	seen := map[int64]bool{}
-	for _, r := range state.rows {
-		seen[r[0].(int64)] = true
-	}
-	if len(state.rows) != batches || len(seen) != batches {
-		t.Errorf("copied %d rows (%d distinct), want %d distinct", len(state.rows), len(seen), batches)
+	if total != batches || len(seen) != batches {
+		t.Errorf("copied %d rows (%d distinct), want %d distinct", total, len(seen), batches)
 	}
 	for i := 0; i < buffers; i++ {
 		if _, err := p.Acquire(ctx); err != nil {
@@ -367,15 +352,14 @@ func TestWriteBatchDistinguishesNullFromZero(t *testing.T) {
 	if err := w.WriteBatch(context.Background(), payload, 2); err != nil {
 		t.Fatal(err)
 	}
-	if want := [][]driver.Value{{int64(0), ""}, {nil, nil}}; !reflect.DeepEqual(state.rows, want) {
+	if want := [][]any{{int32(0), ""}, {nil, nil}}; !reflect.DeepEqual(state.rows, want) {
 		t.Fatalf("copied rows: %#v, want %#v", state.rows, want)
 	}
 }
 
 func TestWriteBatchRollsBackMalformedScalar(t *testing.T) {
 	state := &fakeDB{}
-	db := sql.OpenDB(fakeConnector{state})
-	defer db.Close()
+	db := state
 	w, err := New(db, Config{Table: "t", Fields: []rowfmt.Field{{Name: "flag", Type: rowfmt.Bool, Size: 1}}})
 	if err != nil {
 		t.Fatal(err)
@@ -387,5 +371,124 @@ func TestWriteBatchRollsBackMalformedScalar(t *testing.T) {
 	}
 	if state.rollback != 1 || state.commit != 0 {
 		t.Fatalf("malformed scalar was not rolled back: %+v", state)
+	}
+}
+
+func TestConsumeUsesOneTransactionAcrossBatches(t *testing.T) {
+	for _, malformedLast := range []bool{false, true} {
+		t.Run(fmt.Sprint("malformedLast=", malformedLast), func(t *testing.T) {
+			w, state := newTestWriter(t)
+			payload := encodedRows(t, struct {
+				id   int32
+				name string
+			}{1, "A"})
+			p, err := pool.New(pool.Config{NumBuffers: 3, PayloadCap: len(payload)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			q, err := queue.New(3)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i < 3; i++ {
+				id, err := p.Acquire(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				b, _ := p.Buffer(id)
+				count := uint32(1)
+				if malformedLast && i == 2 {
+					count = 2
+				}
+				(pool.BufferHeader{RecordCount: count, PayloadLen: uint32(len(payload)), UncompressedLen: uint32(len(payload))}).Encode(b)
+				copy(b[pool.HeaderSize:], payload)
+				if err := q.Push(context.Background(), id); err != nil {
+					t.Fatal(err)
+				}
+			}
+			close(q)
+			err = w.Consume(context.Background(), p, q)
+			if malformedLast {
+				if err == nil || state.begin != 1 || state.commit != 0 || state.rollback != 1 || state.flushes != 0 || len(state.rows) != 2 {
+					t.Fatalf("late failure: err=%v, state=%+v", err, state)
+				}
+			} else if err != nil || state.begin != 1 || state.commit != 1 || state.rollback != 0 || state.flushes != 1 || len(state.rows) != 3 {
+				t.Fatalf("success: err=%v, state=%+v", err, state)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			for i := 0; i < 3; i++ {
+				if _, err := p.Acquire(ctx); err != nil {
+					t.Fatalf("buffer leaked: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestConsumeCancellationRollsBack(t *testing.T) {
+	w, state := newTestWriter(t)
+	payload := encodedRows(t, struct {
+		id   int32
+		name string
+	}{1, "A"})
+	p, err := pool.New(pool.Config{NumBuffers: 1, PayloadCap: len(payload)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := queue.New(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	id, err := p.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := p.Buffer(id)
+	(pool.BufferHeader{RecordCount: 1, PayloadLen: uint32(len(payload)), UncompressedLen: uint32(len(payload))}).Encode(b)
+	copy(b[pool.HeaderSize:], payload)
+	if err := q.Push(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- w.Consume(ctx, p, q) }()
+	// The buffer becomes available only after the first row has been consumed.
+	recycled, err := p.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Release(recycled)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected cancellation, got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Consume did not stop on cancellation")
+	}
+	if state.begin != 1 || state.commit != 0 || state.rollback != 1 || len(state.rows) != 1 {
+		t.Fatalf("cancellation did not roll back: %+v", state)
+	}
+}
+
+func TestConsumeEmptyInput(t *testing.T) {
+	w, state := newTestWriter(t)
+	p, err := pool.New(pool.Config{NumBuffers: 1, PayloadCap: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := queue.New(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(q)
+	if err := w.Consume(context.Background(), p, q); err != nil {
+		t.Fatal(err)
+	}
+	if state.begin != 1 || state.commit != 1 || len(state.rows) != 0 {
+		t.Fatalf("empty input: %+v", state)
 	}
 }

@@ -18,7 +18,7 @@ source-db → server → TCP → client → target-db
 | `client` | Accepts HTTP requests and writes the sink | `cmd/client` |
 | `tools` | Loads, downloads, triggers, verifies, and exports the selected dataset; runs on demand | `cmd/harness` |
 
-`internal/transfer` coordinates the stages. Source and sink behavior remains in `internal/postgres` and `internal/target`, so those adapters can be replaced separately from the control API.
+`internal/transfer` coordinates the stages. Source and sink behavior remains in `internal/source` and `internal/target`, so those adapters can be replaced separately from the control API.
 
 ## One transfer
 
@@ -46,7 +46,7 @@ The `workers` setting in the [shared configuration](configuration.md#workers) ru
 | Read | The server asks PostgreSQL for the table's size in heap pages and gives each reader a contiguous page range. A reader filters on `ctid`, which PostgreSQL 14 and later answers with a TID range scan. The last range has no upper bound, so rows on pages added after the size was read are still included. Each reader uses its own connection; the first reuses the session's. One reader scans the whole table without a filter |
 | Compress / decompress | Workers pull batches from the shared queue. Each has its own scratch buffer |
 | Network | The client opens `workers.network` connections and handshakes each. The server accepts that many for one session, then runs one sender per connection on the shared queue. Every connection ends with its own END, and the coordinator closes the receive stage's output after the last receiver has seen its END |
-| Write | Writers pull batches from the shared queue and commit each on its own connection. The sink connection limit equals the writer count |
+| Write | Writers pull batches from the shared queue on its own connection, with one commit for all batches at the end. The sink connection limit equals the writer count |
 
 The client dials every connection before any handshake, because the server accepts a whole session before it answers the first HELLO. Handshakes then run concurrently and must all agree.
 
@@ -79,7 +79,7 @@ Stages exchange buffer IDs through bounded queues. A successful push transfers o
 
 The coordinator cancels the session on a stage error, waits for workers, and releases queued buffers. Producers close their own output queues; a stage with several workers closes its output when the last one exits. The original stage error is retained for reporting, and a cancelled source does not send a successful END.
 
-The sink commits one transaction per batch. There is no whole-transfer rollback or automatic retry: a failure can leave partial rows. Both processes remain available, and the next request clears the sink before writing again. A server log saying the source was sent does not confirm that the sink committed; the client's response reports transfer completion.
+The PostgreSQL sink streams all batches through one COPY statement and commits one transaction after clean end-of-input. A failure rolls back all inserted rows. The initial truncation is committed separately, so a failed transfer leaves an empty table rather than restoring its old contents. CSV failures can leave a partial file. Both processes remain available for another request; there is no automatic retry. A server log saying the source was sent does not confirm that the sink committed; the client's response reports transfer completion.
 
 ## Harness
 

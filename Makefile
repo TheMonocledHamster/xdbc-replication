@@ -1,4 +1,4 @@
-COMPOSE ?= docker compose
+COMPOSE ?= $(if $(shell command -v docker 2>/dev/null),docker compose,podman compose)
 DATASET ?= iot
 COMPRESSION ?= snappy
 # Base name of the dataset's config in testdata/<dataset>/: transfer or transfer_multi.
@@ -7,7 +7,12 @@ TRANSFER_TIMEOUT ?= 1m
 DATA_DIR ?= ./data
 FILE ?= $(DATASET).csv
 EXPORT_DIR ?= ./exports
-export DATASET COMPRESSION TRANSFER_CONFIG DATA_DIR FILE TRANSFER_TIMEOUT
+
+SINK_TYPE ?= postgres
+CSV_OUTPUT_PATH ?= /exports/$(DATASET).csv
+LOCAL_UID ?= $(shell id -u)
+LOCAL_GID ?= $(shell id -g)
+export DATASET COMPRESSION TRANSFER_CONFIG DATA_DIR FILE TRANSFER_TIMEOUT SINK_TYPE CSV_OUTPUT_PATH LOCAL_UID LOCAL_GID
 
 .PHONY: build up up-source up-target seed load fetch transfer verify export e2e e2e-all down test test-postgres
 
@@ -15,12 +20,14 @@ build:
 	$(COMPOSE) build tools
 
 up:
+	mkdir -p exports
 	$(COMPOSE) up -d --build --wait source-db target-db server client
 
 up-source:
 	$(COMPOSE) up -d --build --wait source-db server
 
 up-target:
+	mkdir -p exports
 	$(COMPOSE) up -d --wait target-db
 	$(COMPOSE) up -d --build --no-deps --wait client
 
@@ -66,4 +73,4 @@ test-postgres:
 	XDBC_TEST_DATABASE_URL="postgres://postgres:postgres@localhost:$(or $(SOURCE_POSTGRES_PORT),5433)/xdbc_test?sslmode=disable" \
 	XDBC_TEST_SOURCE_DATABASE_URL="postgres://postgres:postgres@localhost:$(or $(SOURCE_POSTGRES_PORT),5433)/xdbc_test?sslmode=disable" \
 	XDBC_TEST_TARGET_DATABASE_URL="postgres://postgres:postgres@localhost:$(or $(TARGET_POSTGRES_PORT),5434)/xdbc_test?sslmode=disable" \
-	go test -race -count=1 -timeout 60s ./internal/postgres/... ./internal/target/... ./internal/transfer/...
+	go test -race -count=1 -timeout 60s ./internal/source/... ./internal/target/... ./internal/transfer/...

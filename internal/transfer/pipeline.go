@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,8 +15,8 @@ import (
 	"github.com/TheMonocledHamster/xdbc-replication/internal/format/row"
 	"github.com/TheMonocledHamster/xdbc-replication/internal/network"
 	"github.com/TheMonocledHamster/xdbc-replication/internal/pool"
-	"github.com/TheMonocledHamster/xdbc-replication/internal/postgres"
 	"github.com/TheMonocledHamster/xdbc-replication/internal/queue"
+	"github.com/TheMonocledHamster/xdbc-replication/internal/source"
 	"github.com/TheMonocledHamster/xdbc-replication/internal/target"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/sync/errgroup"
@@ -198,7 +199,7 @@ func ServeTransfer(ctx context.Context, conns []net.Conn, databaseURL string, c 
 			}
 			defer conn.Close(context.Background())
 		}
-		return postgres.ReadSeq(ctx, conn, c.PartitionQuery(i, readers, pages), layout, p.pool, p.first, seq)
+		return source.ReadSeq(ctx, conn, c.PartitionQuery(i, readers, pages), layout, p.pool, p.first, seq)
 	})
 	p.start(p.second, func(context.Context) error { return p.encode(c, false) })
 	// Every sender drains the shared queue and sends its own END on its connection.
@@ -213,8 +214,10 @@ type Result struct {
 	ElapsedMS int64 `json:"elapsed_ms"`
 }
 
-// ReceiveTransfer replaces the sink using the current per-batch target writer.
-// Earlier batches may remain if a later batch fails.
+// ReceiveTransfer truncates the sink, then inserts all received batches. Each
+// write worker owns one connection and one COPY transaction, so a failed
+// transfer rolls back every worker's inserts, but a worker that finished
+// before another failed has already committed. Truncation is separate.
 func ReceiveTransfer(ctx context.Context, address, databaseURL string, c Config) (Result, error) {
 	var result Result
 	started := time.Now()
@@ -225,11 +228,87 @@ func ReceiveTransfer(ctx context.Context, address, databaseURL string, c Config)
 	if err != nil {
 		return result, err
 	}
-	defer db.Close()
-	// Each write worker commits one batch per transaction on its own connection.
-	db.SetMaxOpenConns(c.Stages().Write)
+	defer db.Close(context.Background())
 	writer, err := target.New(db, target.Config{Schema: c.Schema, Table: c.Table, Fields: c.Fields})
 	if err != nil {
+		return result, err
+	}
+	// Each write worker streams its own COPY transaction on its own connection.
+	// The first worker uses db; a pgx connection is not safe for concurrent use.
+	writers := make([]*target.Writer, c.Stages().Write)
+	writers[0] = writer
+	for i := 1; i < len(writers); i++ {
+		conn, err := target.OpenPostgres(ctx, databaseURL)
+		if err != nil {
+			return result, err
+		}
+		defer conn.Close(context.Background())
+		if writers[i], err = target.New(conn, target.Config{Schema: c.Schema, Table: c.Table, Fields: c.Fields}); err != nil {
+			return result, err
+		}
+	}
+	result, err = receiveBatches(ctx, address, c,
+		func(ctx context.Context) error {
+			_, err := db.Exec(ctx, "TRUNCATE TABLE "+c.Relation())
+			return err
+		}, func(ctx context.Context, i int, p *pool.Pool, input queue.Queue) error {
+			return writers[i].Consume(ctx, p, input)
+		})
+	if err != nil {
+		return result, err
+	}
+	result.ElapsedMS = time.Since(started).Milliseconds()
+	err = db.QueryRow(ctx, "SELECT count(*) FROM "+c.Relation()).Scan(&result.Rows)
+	return result, err
+}
+
+// ReceiveTransferCSV receives a transfer into a CSV file. The file is created
+// or truncated only after the network handshake succeeds.
+func ReceiveTransferCSV(ctx context.Context, address, outputPath string, c Config) (Result, error) {
+	var result Result
+	started := time.Now()
+	if strings.TrimSpace(outputPath) == "" {
+		return result, errors.New("transfer: CSV output path is required")
+	}
+	if err := c.Validate(); err != nil {
+		return result, err
+	}
+	if c.Stages().Write != 1 {
+		return result, errors.New("transfer: CSV sink supports a single write worker")
+	}
+	var writer *target.CSVWriter
+	result, err := receiveBatches(ctx, address, c,
+		func(context.Context) error {
+			var err error
+			writer, err = target.OpenCSVFile(outputPath, target.CSVConfig{Fields: c.Fields})
+			return err
+		}, func(ctx context.Context, _ int, p *pool.Pool, input queue.Queue) error {
+			if writer == nil {
+				return errors.New("transfer: CSV writer was not initialized")
+			}
+			return writer.Consume(ctx, p, input)
+		})
+	if writer != nil {
+		closeErr := writer.Close()
+		if err != nil || closeErr != nil {
+			return result, errors.Join(err, closeErr)
+		}
+		result.Rows = writer.RowsWritten()
+	}
+	if err != nil {
+		return result, err
+	}
+	result.ElapsedMS = time.Since(started).Milliseconds()
+	return result, err
+}
+
+// receiveBatches owns the common network, decompression, and buffer-pool path
+// for every sink. prepare is the unique setup step for each sink; consume runs
+// once per write worker, i being its index.
+func receiveBatches(ctx context.Context, address string, c Config, prepare func(context.Context) error,
+	consume func(ctx context.Context, i int, p *pool.Pool, input queue.Queue) error) (Result, error) {
+	var result Result
+	if err := c.Validate(); err != nil {
 		return result, err
 	}
 	// Dial every connection before beginning negotiations
@@ -250,8 +329,10 @@ func ReceiveTransfer(ctx context.Context, address, databaseURL string, c Config)
 	if err != nil {
 		return result, err
 	}
-	if _, err := db.ExecContext(ctx, "TRUNCATE TABLE "+c.Relation()); err != nil {
-		return result, err
+	if prepare != nil {
+		if err := prepare(ctx); err != nil {
+			return result, err
+		}
 	}
 	p, err := newPipeline(ctx, c, cfg.PayloadCap)
 	if err != nil {
@@ -262,13 +343,10 @@ func ReceiveTransfer(ctx context.Context, address, databaseURL string, c Config)
 		return network.Receive(ctx, conns[i], p.pool, p.first, cfg)
 	})
 	p.start(p.second, func(context.Context) error { return p.encode(c, true) })
-	// Batches are independent transactions into one table, so writers share the
-	// queue with no further partitioning; row order in the sink is not defined.
-	p.startN(nil, c.Stages().Write, func(ctx context.Context, _ int) error { return writer.Consume(ctx, p.pool, p.second) })
+	// Writers share the queue with no further partitioning; row order in the sink is not defined.
+	p.startN(nil, c.Stages().Write, func(ctx context.Context, i int) error { return consume(ctx, i, p.pool, p.second) })
 	if err := p.wait(); err != nil {
 		return result, fmt.Errorf("transfer: %w", err)
 	}
-	result.ElapsedMS = time.Since(started).Milliseconds()
-	err = db.QueryRowContext(ctx, "SELECT count(*) FROM "+c.Relation()).Scan(&result.Rows)
-	return result, err
+	return result, nil
 }

@@ -1,6 +1,7 @@
 package target
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -12,7 +13,7 @@ import (
 	"github.com/TheMonocledHamster/xdbc-replication/internal/queue"
 )
 
-// TestPostgresConsumeIntegration exercises the real lib/pq COPY path against
+// TestPostgresConsumeIntegration exercises the real pgx COPY path against
 // PostgreSQL. Similar to source-reader integration tests, it runs only when
 // XDBC_TEST_DATABASE_URL is set (for example by the repository's Makefile).
 func TestPostgresConsumeIntegration(t *testing.T) {
@@ -28,15 +29,13 @@ func TestPostgresConsumeIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect to PostgreSQL: %v", err)
 	}
-	defer db.Close()
+	defer db.Close(context.Background())
 
 	// PostgreSQL temporary tables belong to one session.
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
 
 	table := fmt.Sprintf("target_it_%d", time.Now().UnixNano())
 	quotedTable := `"` + table + `"` // generated identifier contains only safe characters
-	if _, err := db.ExecContext(ctx, "CREATE TEMP TABLE "+quotedTable+` (
+	if _, err := db.Exec(ctx, "CREATE TEMP TABLE "+quotedTable+` (
 		id INTEGER NOT NULL,
 		name VARCHAR(8) NOT NULL
 	)`); err != nil {
@@ -102,7 +101,7 @@ func TestPostgresConsumeIntegration(t *testing.T) {
 		t.Fatalf("consume buffer into PostgreSQL: %v", err)
 	}
 
-	rows, err := db.QueryContext(ctx, "SELECT id, name FROM "+quotedTable+" ORDER BY id")
+	rows, err := db.Query(ctx, "SELECT id, name FROM "+quotedTable+" ORDER BY id")
 	if err != nil {
 		t.Fatalf("query copied rows: %v", err)
 	}
@@ -146,5 +145,73 @@ func TestPostgresConsumeIntegration(t *testing.T) {
 	}
 	if err := p.Release(reusedID); err != nil {
 		t.Errorf("release reacquired buffer: %v", err)
+	}
+}
+
+// A server-side error in a later batch must roll back earlier batches too.
+func TestPostgresConsumeRollsBackEarlierBatches(t *testing.T) {
+	dsn := os.Getenv("XDBC_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("set XDBC_TEST_DATABASE_URL")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	db, err := OpenPostgres(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close(context.Background())
+	table := fmt.Sprintf("target_rollback_%d", time.Now().UnixNano())
+	if _, err := db.Exec(ctx, "CREATE TEMP TABLE "+table+" (id INTEGER CHECK (id > 0), name TEXT)"); err != nil {
+		t.Fatal(err)
+	}
+	w, err := New(db, Config{Table: table, Fields: testFields})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Enough data to force pgx to send COPY data before the final bad batch.
+	good := encodedRows(t, struct {
+		id   int32
+		name string
+	}{1, "A"})
+	payload := bytes.Repeat(good, 20000)
+	bad := encodedRows(t, struct {
+		id   int32
+		name string
+	}{-1, "B"})
+	p, err := pool.New(pool.Config{NumBuffers: 2, PayloadCap: len(payload)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := queue.New(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, data := range [][]byte{payload, bad} {
+		id, err := p.Acquire(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := p.Buffer(id)
+		(pool.BufferHeader{RecordCount: uint32(len(data) / len(good)), PayloadLen: uint32(len(data)), UncompressedLen: uint32(len(data))}).Encode(b)
+		copy(b[pool.HeaderSize:], data)
+		if err := q.Push(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	close(q)
+	if err := w.Consume(ctx, p, q); err == nil {
+		t.Fatal("expected constraint failure")
+	}
+	var count int
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("earlier batch committed: %d rows", count)
+	}
+	// A failed COPY must leave the connection usable for the next transfer.
+	if err := w.WriteBatch(ctx, good, 1); err != nil {
+		t.Fatal(err)
 	}
 }

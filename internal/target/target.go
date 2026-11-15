@@ -1,43 +1,46 @@
-// Package target loads row-format XDBC batches into a PostgreSQL relation.
-// The destination fields must match the ordered schema used to encode rows.
+// Package target loads row-format XDBC batches into PostgreSQL.
 package target
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
 	"regexp"
-	"strings"
+	"time"
 
 	"github.com/TheMonocledHamster/xdbc-replication/internal/format/row"
 	"github.com/TheMonocledHamster/xdbc-replication/internal/pool"
 	"github.com/TheMonocledHamster/xdbc-replication/internal/queue"
+	"github.com/jackc/pgx/v5"
 )
 
-// Config describes the destination relation and the ordered row schema. The
-// field names are PostgreSQL column names; types and sizes define the incoming
-// binary row layout shared with the source.
+// Config describes the destination relation and ordered row schema.
 type Config struct {
 	Schema string
 	Table  string
 	Fields []row.Field
 }
 
-// Writer copies decoded row-format batches into PostgreSQL using COPY FROM STDIN.
+type database interface {
+	Begin(context.Context) (pgx.Tx, error)
+}
+
+// Writer streams decoded rows through pgx binary COPY.
+// A Writer and its connection must not be used concurrently.
 type Writer struct {
-	db        *sql.DB
-	statement string
-	layout    *row.Layout
-	fields    []row.Field
+	db       database
+	relation pgx.Identifier
+	columns  []string
+	layout   *row.Layout
+	fields   []row.Field
 }
 
 var identifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// New constructs a writer for the requested destination. Schema may be empty
-// to use PostgreSQL's search_path.
-func New(db *sql.DB, cfg Config) (*Writer, error) {
+// New validates identifiers and row layout for an existing destination table.
+// The caller owns the connection.
+func New(db database, cfg Config) (*Writer, error) {
 	if db == nil {
 		return nil, errors.New("target: database is nil")
 	}
@@ -49,27 +52,24 @@ func New(db *sql.DB, cfg Config) (*Writer, error) {
 	}
 	layout, err := row.NewLayout(cfg.Fields)
 	if err != nil {
-		return nil, fmt.Errorf("target: invalid row schema: %w", err)
+		return nil, err
 	}
-	quotedColumns := make([]string, len(cfg.Fields))
+	columns := make([]string, len(cfg.Fields))
 	for i, field := range cfg.Fields {
 		if !identifier.MatchString(field.Name) {
 			return nil, fmt.Errorf("target: invalid column name %q", field.Name)
 		}
-		quotedColumns[i] = `"` + field.Name + `"`
+		columns[i] = field.Name
 	}
-	relation := `"` + cfg.Table + `"`
+	relation := pgx.Identifier{cfg.Table}
 	if cfg.Schema != "" {
-		relation = `"` + cfg.Schema + `".` + relation
+		relation = pgx.Identifier{cfg.Schema, cfg.Table}
 	}
-	return &Writer{
-		db: db, layout: layout, fields: append([]row.Field(nil), cfg.Fields...),
-		statement: "COPY " + relation + " (" + strings.Join(quotedColumns, ", ") + ") FROM STDIN",
-	}, nil
+	return &Writer{db: db, relation: relation, columns: columns, layout: layout, fields: append([]row.Field(nil), cfg.Fields...)}, nil
 }
 
-// WriteBatch validates and copies recordCount fixed-width rows as one
-// transaction. A malformed payload or COPY error rolls the batch back.
+// WriteBatch performs a standalone COPY transaction for one batch.
+// The transfer runtime uses Consume to keep one transaction across all batches.
 func (w *Writer) WriteBatch(ctx context.Context, payload []byte, recordCount uint32) error {
 	if w == nil || w.db == nil || w.layout == nil {
 		return errors.New("target: writer is not initialized")
@@ -80,91 +80,104 @@ func (w *Writer) WriteBatch(ctx context.Context, payload []byte, recordCount uin
 	if recordCount == 0 {
 		return nil
 	}
-	tx, err := w.db.BeginTx(ctx, nil)
+	return w.copy(ctx, pgx.CopyFromSlice(int(recordCount), func(i int) ([]any, error) {
+		return w.decodeRow(payload[i*w.layout.RowSize() : (i+1)*w.layout.RowSize()])
+	}))
+}
+
+func (w *Writer) copy(ctx context.Context, source pgx.CopyFromSource) error {
+	if w == nil || w.db == nil || w.layout == nil {
+		return errors.New("target: writer is not initialized")
+	}
+	tx, err := w.db.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("target: begin transaction: %w", err)
+		return fmt.Errorf("target: begin COPY: %w", err)
 	}
-	defer tx.Rollback()
-	stmt, err := tx.PrepareContext(ctx, w.statement)
-	if err != nil {
-		return fmt.Errorf("target: prepare COPY: %w", err)
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = tx.Rollback(cleanup)
+	}()
+	if _, err := tx.CopyFrom(ctx, w.relation, w.columns, source); err != nil {
+		return fmt.Errorf("target: COPY: %w", err)
 	}
-	for i := 0; i < int(recordCount); i++ {
-		encoded, err := w.layout.RowAt(payload, i)
-		if err != nil {
-			_ = stmt.Close()
-			return fmt.Errorf("target: read row %d: %w", i+1, err)
-		}
-		values, err := w.decodeRow(encoded)
-		if err != nil {
-			_ = stmt.Close()
-			return fmt.Errorf("target: decode row %d: %w", i+1, err)
-		}
-		if _, err := stmt.ExecContext(ctx, values...); err != nil {
-			_ = stmt.Close()
-			return fmt.Errorf("target: COPY row %d: %w", i+1, err)
-		}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	// lib/pq flushes COPY data when Exec is called with no arguments.
-	if _, err := stmt.ExecContext(ctx); err != nil {
-		_ = stmt.Close()
-		return fmt.Errorf("target: finish COPY: %w", err)
-	}
-	if err := stmt.Close(); err != nil {
-		return fmt.Errorf("target: close COPY: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("target: commit batch: %w", err)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("target: commit COPY: %w", err)
 	}
 	return nil
 }
 
-// Consume reads buffer IDs from the downstream queue, writes each uncompressed
-// row-format payload to PostgreSQL, and releases every buffer after processing.
-func (w *Writer) Consume(ctx context.Context, p *pool.Pool, input queue.Queue) error {
+// Consume keeps one binary COPY statement and transaction open until clean EOF.
+// Any failure rolls back all inserted rows. Every popped buffer is released.
+func (w *Writer) Consume(ctx context.Context, p *pool.Pool, input queue.Queue) (err error) {
 	if p == nil {
 		return errors.New("target: pool is nil")
 	}
-	for {
-		// Pick new buffer id from queue
-		id, err := input.Pop(ctx)
-		if errors.Is(err, io.EOF) {
+	if w == nil || w.layout == nil {
+		return errors.New("target: writer is not initialized")
+	}
+	id := -1
+	var payload []byte
+	var index, count int
+	release := func() error {
+		if id < 0 {
 			return nil
 		}
-		if err != nil {
-			return err
-		}
-		// Read and write that batch
-		if err := w.consumeBuffer(ctx, p, id); err != nil {
-			return errors.Join(err, p.Release(id))
-		}
-		// Release buffer so new batch can take its space
-		if err := p.Release(id); err != nil {
-			return fmt.Errorf("target: release buffer %d: %w", id, err)
-		}
+		err := p.Release(id)
+		id = -1
+		return err
 	}
+	defer func() { err = errors.Join(err, release()) }()
+	source := pgx.CopyFromFunc(func() ([]any, error) {
+		for index == count {
+			if err := release(); err != nil {
+				return nil, err
+			}
+			next, err := input.Pop(ctx)
+			if errors.Is(err, io.EOF) {
+				return nil, nil
+			}
+			if err != nil {
+				return nil, err
+			}
+			id = next
+			payload, count, err = w.bufferPayload(p, id)
+			if err != nil {
+				return nil, err
+			}
+			index = 0
+		}
+		values, err := w.decodeRow(payload[index*w.layout.RowSize() : (index+1)*w.layout.RowSize()])
+		index++
+		return values, err
+	})
+	return w.copy(ctx, source)
 }
 
-func (w *Writer) consumeBuffer(ctx context.Context, p *pool.Pool, id int) error {
+func (w *Writer) bufferPayload(p *pool.Pool, id int) ([]byte, int, error) {
 	b, err := p.Buffer(id)
 	if err != nil {
-		return fmt.Errorf("target: access buffer %d: %w", id, err)
+		return nil, 0, fmt.Errorf("target: access buffer %d: %w", id, err)
 	}
 	if len(b) < pool.HeaderSize {
-		return errors.New("target: buffer is shorter than its header")
+		return nil, 0, errors.New("target: buffer is shorter than its header")
 	}
-
 	h := pool.DecodeHeader(b)
 	if uint64(h.PayloadLen) > uint64(p.PayloadCap()) {
-		return fmt.Errorf("target: buffer %d payload length %d exceeds capacity %d", id, h.PayloadLen, p.PayloadCap())
+		return nil, 0, fmt.Errorf("target: buffer %d payload length %d exceeds capacity %d", id, h.PayloadLen, p.PayloadCap())
 	}
-	if h.Compression != 0 { // For now, not compressed
-		return fmt.Errorf("target: buffer %d is compressed; decompress it before writing", id)
+	if h.Compression != 0 {
+		return nil, 0, fmt.Errorf("target: buffer %d is compressed; decompress it before writing", id)
 	}
 	if h.UncompressedLen != h.PayloadLen {
-		return fmt.Errorf("target: buffer %d uncompressed length does not match payload length", id)
+		return nil, 0, fmt.Errorf("target: buffer %d uncompressed length does not match payload length", id)
 	}
-
-	end := pool.HeaderSize + int(h.PayloadLen)
-	return w.WriteBatch(ctx, b[pool.HeaderSize:end], h.RecordCount)
+	payload := b[pool.HeaderSize : pool.HeaderSize+int(h.PayloadLen)]
+	if err := w.layout.ValidatePayload(payload, h.RecordCount); err != nil {
+		return nil, 0, fmt.Errorf("target: invalid row payload: %w", err)
+	}
+	return payload, int(h.RecordCount), nil
 }
