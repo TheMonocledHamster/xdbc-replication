@@ -1,7 +1,6 @@
 COMPOSE ?= $(if $(shell command -v docker 2>/dev/null),docker compose,podman compose)
 DATASET ?= iot
 COMPRESSION ?= snappy
-# Base name of the dataset's config in testdata/<dataset>/: transfer or transfer_multi.
 TRANSFER_CONFIG ?= transfer
 TRANSFER_TIMEOUT ?= 1m
 DATA_DIR ?= ./data

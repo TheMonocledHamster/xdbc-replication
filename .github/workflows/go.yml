@@ -23,7 +23,6 @@ jobs:
     strategy:
       matrix:
         dataset: [lineitem, acs, iot, icu]
-        # transfer: one worker per stage; transfer_multi: several workers per stage
         config: [transfer, transfer_multi]
     steps:
       - uses: actions/checkout@v4

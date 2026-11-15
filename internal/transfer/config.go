@@ -31,7 +31,6 @@ type Workers struct {
 	Write      int `json:"write"`
 }
 
-// Replaces unset counts with one if not specified
 func (w Workers) withDefaults() Workers {
 	for _, n := range []*int{&w.Read, &w.Compress, &w.Network, &w.Decompress, &w.Write} {
 		if *n == 0 {
@@ -51,11 +50,11 @@ func (w Workers) validate() error {
 	return nil
 }
 
-// Stages returns the effective worker counts, with defaults applied.
+// Returns effective worker counts, with defaults applied if needed
 func (c Config) Stages() Workers { return c.Workers.withDefaults() }
 
-// MinPool is the smallest pool that cannot deadlock
-// Could do distinct mins for server and client, but only sacrifices a little bit of memory
+// Identifies the smallest pool that can't deadlock
+// Could do distinct mins for server and client, am lazy
 func (c Config) MinPool() int {
 	w := c.Stages()
 	server := w.Read + 2*w.Compress + w.Network
@@ -119,14 +118,7 @@ func (c Config) Query() string {
 	return "SELECT " + strings.Join(names, ", ") + " FROM " + c.Relation()
 }
 
-// PartitionQuery is Query restricted to reader part (0-based) of parts. Readers
-// split the table's heap pages, taken as 0..pages, into contiguous ranges and
-// filter on ctid, which PostgreSQL 14+ answers with a TID range scan rather
-// than reading every row. The last range has no upper bound, so rows on pages
-// added after the page count was taken are still read. A single reader gets the
-// unfiltered query.
-
-// Splits the table into contiguous ranges, filters on ctid, and issues the query for that part
+// Split table into contiguous ranges, filter on ctid, issue query for that part
 func (c Config) PartitionQuery(part, parts int, pages int64) string {
 	if parts <= 1 {
 		return c.Query()

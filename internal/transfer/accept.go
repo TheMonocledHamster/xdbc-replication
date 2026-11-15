@@ -5,9 +5,9 @@ import (
 	"time"
 )
 
-// AcceptConns accepts the n connections that make up one transfer session.
+// Accept n connections for one transfer session.
 func AcceptConns(l net.Listener, n int, timeout time.Duration) (conns []net.Conn, err error) {
-	// Set a deadline, throwing an error if something goes off
+	// Set a deadline, throwing an error if something's gone off
 	deadliner, _ := l.(interface{ SetDeadline(time.Time) error })
 	defer func() {
 		if deadliner != nil {
@@ -19,18 +19,18 @@ func AcceptConns(l net.Listener, n int, timeout time.Duration) (conns []net.Conn
 		}
 	}()
 
-	// Spin up the n listening threads sequentially
+	// Start the n listening threads sequentially
 	for len(conns) < n {
 		conn, err := l.Accept()
 		if err != nil {
 			return conns, err
 		}
 
-		// Add the established connections to a metadata array for tracking
+		// Add established conns to metadata array for tracking
 		conns = append(conns, conn)
 		if len(conns) == 1 && deadliner != nil {
 
-			// First connection sets a deadline to accept the remaining requests
+			// First conn sets deadline to accept the remaining requests
 			_ = deadliner.SetDeadline(time.Now().Add(timeout))
 		}
 	}

@@ -53,7 +53,7 @@ func (p *pipeline) start(out queue.Queue, stage func(context.Context) error) {
 	p.startN(out, 1, func(ctx context.Context, _ int) error { return stage(ctx) })
 }
 
-// Run n workers of one logical stage. The last worker to exit closes out.
+// Run n workers of one logical stage
 func (p *pipeline) startN(out queue.Queue, n int, stage func(ctx context.Context, worker int) error) {
 	var remaining atomic.Int32
 	remaining.Store(int32(n))
@@ -68,7 +68,7 @@ func (p *pipeline) startN(out queue.Queue, n int, stage func(ctx context.Context
 				p.cancel()
 			}
 
-			// IF the last worker to exit, close the relevant queue
+			// If the last worker to exit, close the relevant queue
 			// I don't anticipate scenarios where a worker exits early and triggers this
 			if remaining.Add(-1) == 0 && out != nil {
 				close(out)
@@ -143,43 +143,50 @@ func closeAll(conns []net.Conn) {
 	}
 }
 
-// ServeTransfer uses a fresh database connection and pipeline for each client.
-// conns are the session's TCP connections, one per network worker (see
-// AcceptConns); ServeTransfer closes them.
+// Start DB conn and pipeline for each client
 func ServeTransfer(ctx context.Context, conns []net.Conn, databaseURL string, c Config) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	stop := context.AfterFunc(ctx, func() { closeAll(conns) })
 	defer stop()
 	defer closeAll(conns)
+
+	// Checks to make sure we didn't muff up the config
 	if len(conns) != c.Stages().Network {
 		return fmt.Errorf("transfer: %d connections, but workers.network is %d", len(conns), c.Stages().Network)
 	}
+
+	// Start DB conn
 	db, err := pgx.Connect(ctx, databaseURL)
 	if err != nil {
 		return err
 	}
 	defer db.Close(context.Background())
+
+	// Do the network handshakes
 	cfg, err := handshakeAll(ctx, conns, func(ctx context.Context, conn net.Conn) (network.Config, error) {
 		return network.ServerHandshake(ctx, conn, c.Network())
 	})
 	if err != nil {
 		return err
 	}
-	// The client sends no more bytes after HELLO. Any disconnect cancels reading
-	// PostgreSQL too, including when the HTTP caller abandons the transfer.
+
+	// Start up the network readers
 	var peers sync.WaitGroup
 	for _, conn := range conns {
 		peers.Add(1)
 		go func() { defer peers.Done(); var b [1]byte; _, _ = conn.Read(b[:]); cancel() }()
 	}
 	defer func() { closeAll(conns); peers.Wait() }()
+
+	// Start up the core pipeline
 	p, err := newPipeline(ctx, c, cfg.PayloadCap)
 	if err != nil {
 		return err
 	}
+
+	// Verify DB read-side config
 	layout, _ := row.NewLayout(c.Fields)
-	// Parallel readers each scan a disjoint range of the table's heap pages
 	readers := c.Stages().Read
 	var pages int64
 	if readers > 1 {
@@ -189,6 +196,8 @@ func ServeTransfer(ctx context.Context, conns []net.Conn, databaseURL string, c 
 			return fmt.Errorf("transfer: size source table: %w", err)
 		}
 	}
+
+	// Start DB readers
 	seq := new(atomic.Uint64)
 	p.startN(p.first, readers, func(ctx context.Context, i int) error {
 		conn := db
@@ -202,7 +211,8 @@ func ServeTransfer(ctx context.Context, conns []net.Conn, databaseURL string, c 
 		return source.ReadSeq(ctx, conn, c.PartitionQuery(i, readers, pages), layout, p.pool, p.first, seq)
 	})
 	p.start(p.second, func(context.Context) error { return p.encode(c, false) })
-	// Every sender drains the shared queue and sends its own END on its connection.
+
+	// Begin sending bytes over the network
 	p.startN(nil, len(conns), func(ctx context.Context, i int) error {
 		return network.Send(ctx, conns[i], p.pool, p.second, cfg)
 	})
@@ -214,10 +224,7 @@ type Result struct {
 	ElapsedMS int64 `json:"elapsed_ms"`
 }
 
-// ReceiveTransfer truncates the sink, then inserts all received batches. Each
-// write worker owns one connection and one COPY transaction, so a failed
-// transfer rolls back every worker's inserts, but a worker that finished
-// before another failed has already committed. Truncation is separate.
+// Truncate sink and insert received batches
 func ReceiveTransfer(ctx context.Context, address, databaseURL string, c Config) (Result, error) {
 	var result Result
 	started := time.Now()
@@ -233,8 +240,7 @@ func ReceiveTransfer(ctx context.Context, address, databaseURL string, c Config)
 	if err != nil {
 		return result, err
 	}
-	// Each write worker streams its own COPY transaction on its own connection.
-	// The first worker uses db; a pgx connection is not safe for concurrent use.
+	// Only first writer connects to DB to avoid concurrency issues
 	writers := make([]*target.Writer, c.Stages().Write)
 	writers[0] = writer
 	for i := 1; i < len(writers); i++ {
