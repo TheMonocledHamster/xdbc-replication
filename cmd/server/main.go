@@ -57,15 +57,20 @@ func run() error {
 	g.Go(func() error {
 		slog.Info("server listening", "address", listener.Addr(), "compression", c.Compression)
 		for {
-			conn, err := listener.Accept()
+			conns, err := transfer.AcceptConns(listener, c.Stages().Network, timeout)
 			if err != nil {
 				if ctx.Err() != nil {
 					return nil
 				}
+				var netErr net.Error
+				if errors.As(err, &netErr) && netErr.Timeout() {
+					slog.Error("client opened too few connections", "want", c.Stages().Network, "error", err)
+					continue
+				}
 				return err
 			}
 			session, finish := context.WithTimeout(ctx, timeout)
-			err = transfer.ServeTransfer(session, conn, url, c)
+			err = transfer.ServeTransfer(session, conns, url, c)
 			finish()
 			if err != nil {
 				slog.Error("source transfer failed", "error", err)

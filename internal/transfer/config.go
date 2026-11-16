@@ -19,7 +19,47 @@ type Config struct {
 	BufferSize    int         `json:"buffer_size"`
 	PoolSize      int         `json:"pool_size"`
 	QueueCapacity int         `json:"queue_capacity"`
+	Workers       Workers     `json:"workers"`
 	Fields        []row.Field `json:"fields"`
+}
+
+type Workers struct {
+	Read       int `json:"read"`
+	Compress   int `json:"compress"`
+	Network    int `json:"network"`
+	Decompress int `json:"decompress"`
+	Write      int `json:"write"`
+}
+
+func (w Workers) withDefaults() Workers {
+	for _, n := range []*int{&w.Read, &w.Compress, &w.Network, &w.Decompress, &w.Write} {
+		if *n == 0 {
+			*n = 1
+		}
+	}
+	return w
+}
+
+func (w Workers) validate() error {
+	for name, n := range map[string]int{"read": w.Read, "compress": w.Compress, "network": w.Network,
+		"decompress": w.Decompress, "write": w.Write} {
+		if n < 0 {
+			return fmt.Errorf("workers.%s must not be negative", name)
+		}
+	}
+	return nil
+}
+
+// Returns effective worker counts, with defaults applied if needed
+func (c Config) Stages() Workers { return c.Workers.withDefaults() }
+
+// Identifies the smallest pool that can't deadlock
+// Could do distinct mins for server and client, am lazy
+func (c Config) MinPool() int {
+	w := c.Stages()
+	server := w.Read + 2*w.Compress + w.Network
+	client := w.Network + 2*w.Decompress + w.Write
+	return 2*c.QueueCapacity + max(server, client)
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -49,8 +89,12 @@ func (c Config) Validate() error {
 	if c.BufferSize < l.RowSize() {
 		return fmt.Errorf("buffer_size must fit at least one row (%d bytes)", l.RowSize())
 	}
-	if c.QueueCapacity < 1 || c.PoolSize < 2*c.QueueCapacity+4 {
-		return fmt.Errorf("queue_capacity must be positive and pool_size must be at least 2*queue_capacity+4 (one worker per stage)")
+	if err := c.Workers.validate(); err != nil {
+		return err
+	}
+	if c.QueueCapacity < 1 || c.PoolSize < c.MinPool() {
+		return fmt.Errorf("queue_capacity must be positive and pool_size must be at least %d "+
+			"(2*queue_capacity plus the buffers held by the configured workers)", c.MinPool())
 	}
 	if c.Compression != "none" && c.Compression != "snappy" {
 		return fmt.Errorf("compression must be none or snappy")
@@ -73,6 +117,20 @@ func (c Config) Query() string {
 	}
 	return "SELECT " + strings.Join(names, ", ") + " FROM " + c.Relation()
 }
+
+// Split table into contiguous ranges, filter on ctid, issue query for that part
+func (c Config) PartitionQuery(part, parts int, pages int64) string {
+	if parts <= 1 {
+		return c.Query()
+	}
+	lo := pages * int64(part) / int64(parts)
+	where := fmt.Sprintf(" WHERE ctid >= '(%d,0)'", lo)
+	if part < parts-1 {
+		where += fmt.Sprintf(" AND ctid < '(%d,0)'", pages*int64(part+1)/int64(parts))
+	}
+	return c.Query() + where
+}
+
 func (c Config) Network() network.Config {
 	mode := network.CompressionNone
 	if c.Compression == "snappy" {

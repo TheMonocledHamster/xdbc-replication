@@ -28,6 +28,14 @@ make e2e-all
 
 `e2e-all` checks all four samples with Snappy. Each run loads the selected sample, verifies repeated transfers, forces a sink failure and checks recovery, tests an empty source, then leaves a verified sample behind. No dataset download is needed for these checks.
 
+By default each stage (read, compress, send, receive, decompress, write) runs one worker. To run several per stage, select the multi-worker configuration:
+
+```sh
+make e2e DATASET=iot TRANSFER_CONFIG=transfer_multi
+```
+
+Worker counts, connection counts, and buffer sizing are described in [Configuration](docs/configuration.md#workers).
+
 ## Work interactively
 
 ```sh

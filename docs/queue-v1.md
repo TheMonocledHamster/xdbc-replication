@@ -11,7 +11,7 @@
 
 A successful push transfers buffer ownership to the downstream stage. If push fails, the caller still owns the buffer and must release it.
 
-The producer's coordinator closes its output after production finishes. If several producers share a queue, close it only after all have finished. Sending to a closed queue panics; cancellation alone does not close a queue.
+The producer's coordinator closes its output after production finishes. If several producers share a queue, close it only after all have finished. The runtime's multi-worker stages do this: the last worker to exit closes the stage's output. Sending to a closed queue panics; cancellation alone does not close a queue. Several consumers may also share one queue; each ID is delivered to exactly one of them.
 
 On failure, the [runtime](architecture.md#ownership-and-failures) cancels workers, waits for them, and releases IDs left in the queues. Queue capacity and pool size must be [configured together](configuration.md#buffer-sizing).
 
