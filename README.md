@@ -99,8 +99,7 @@ docker compose run --build --rm bench
 ```
 
 Times ours vs PostgreSQL's built-in `postgres_fdw` (and optionally JDBC) and prints a summary.
-See [`bench/README.md`](bench/README.md) for options, and
-[`docs/fig9b-investigation.md`](docs/fig9b-investigation.md) for how our results compare with the paper.
+See [`bench/README.md`](bench/README.md) for options.
 
 ## Run on separate machines
 

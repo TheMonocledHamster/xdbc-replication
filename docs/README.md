@@ -17,7 +17,6 @@ Start with the [project README](../README.md) to run the application.
 | [Queues](queue-v1.md) | Backpressure, closure, and cancellation |
 | [Datasets](../testdata/README.md) | All four schemas, archive formats, samples, and provenance |
 | [Fig. 9b benchmark](../bench/README.md) | One-command benchmark: ours vs native vs JDBC |
-| [Fig. 9b investigation](fig9b-investigation.md) | What differs from the paper, and why |
 
 The `*-v1.md` filenames refer to component contracts. Both PostgreSQL adapters support the full row scalar type set, including NULL. The wire handshake still requires both peers to be configured with the same ordered schema.
 

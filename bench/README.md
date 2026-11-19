@@ -99,5 +99,4 @@ show a real attempt that hit a 1-hour timeout.
 ### Deviations from the original
 
 - PostgreSQL 17 instead of 13 (native times were the same on both in our tests), JDK 21 instead of 8.
-- Everything on one machine. The authors' cluster had a network between the databases;
-  see `docs/fig9b-investigation.md` for why that matters for native.
+- Everything on one machine, as in the paper (§5.1).
