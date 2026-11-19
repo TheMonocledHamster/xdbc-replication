@@ -29,8 +29,8 @@ Acquisition respects cancellation. Release does not take a context, so cleanup r
 
 | Offset | Bytes | Field |
 |---|---|---|
-| 0 | 8 | `Seq`: batch sequence |
-| 8 | 8 | `NextRecord`: cumulative row position after this batch |
+| 0 | 8 | `Seq`: batch sequence; unique within a transfer, including across parallel readers, but batches may arrive out of order |
+| 8 | 8 | `NextRecord`: cumulative row position after this batch, counted per reader when several readers run |
 | 16 | 4 | `RecordCount` |
 | 20 | 4 | `PayloadLen`: bytes currently stored |
 | 24 | 4 | `UncompressedLen`: row-payload bytes before compression |

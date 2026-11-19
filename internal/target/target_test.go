@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -245,6 +246,88 @@ func TestConsumeRejectsCompressedBatchAndReleasesBuffer(t *testing.T) {
 	}
 	if err := p.Release(reused); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Several workers, each with its own Writer and connection, may consume one
+// queue: every batch is written exactly once and every buffer returns to the pool.
+func TestConsumeConcurrentWorkers(t *testing.T) {
+	const batches, workers, buffers = 100, 4, 8
+	writers := make([]*Writer, workers)
+	states := make([]*fakeDB, workers)
+	for i := range writers {
+		writers[i], states[i] = newTestWriter(t)
+	}
+	p, err := pool.New(pool.Config{NumBuffers: buffers, PayloadCap: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := queue.New(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	produced := make(chan error, 1)
+	go func() { // a small pool forces producers to wait for consumers to release
+		defer close(q)
+		for i := 0; i < batches; i++ {
+			id, err := p.Acquire(ctx)
+			if err != nil {
+				produced <- err
+				return
+			}
+			b, _ := p.Buffer(id)
+			payload := encodedRows(t, struct {
+				id   int32
+				name string
+			}{int32(i), "x"})
+			(pool.BufferHeader{RecordCount: 1, PayloadLen: uint32(len(payload)), UncompressedLen: uint32(len(payload))}).Encode(b)
+			copy(b[pool.HeaderSize:], payload)
+			if err := q.Push(ctx, id); err != nil {
+				produced <- err
+				return
+			}
+		}
+		produced <- nil
+	}()
+
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); errs <- writers[i].Consume(ctx, p, q) }()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("Consume() error = %v", err)
+		}
+	}
+	if err := <-produced; err != nil {
+		t.Fatal(err)
+	}
+
+	seen := map[int32]bool{}
+	total := 0
+	for _, state := range states {
+		if state.rollback != 0 {
+			t.Errorf("rollbacks = %d, want 0", state.rollback)
+		}
+		for _, r := range state.rows {
+			seen[r[0].(int32)] = true
+		}
+		total += len(state.rows)
+	}
+	if total != batches || len(seen) != batches {
+		t.Errorf("copied %d rows (%d distinct), want %d distinct", total, len(seen), batches)
+	}
+	for i := 0; i < buffers; i++ {
+		if _, err := p.Acquire(ctx); err != nil {
+			t.Fatalf("buffer leaked: %v", err)
+		}
 	}
 }
 

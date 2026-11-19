@@ -1,6 +1,6 @@
 # TCP protocol V1
 
-`internal/network` transports encoded batches over TCP. Compression and row conversion happen in separate stages. The runtime uses one connection per transfer; the network package also supports separate connections sharing queues.
+`internal/network` transports encoded batches over TCP. Compression and row conversion happen in separate stages. The runtime opens `workers.network` connections per transfer (one by default). Each connection has its own handshake, sender or receiver, and END, and all connections share the session's queues; see [Multiple connections](#multiple-connections).
 
 ## Frame header
 
@@ -39,6 +39,12 @@ The client sends HELLO. The server responds with HELLO_ACK or rejects the reques
 Compression and format must match. The accepted capacity is the smaller peer capacity, excluding the 32-byte pool header. It must be positive and leave room for that header in the frame's uint32 payload length.
 
 The handshake does not send credentials, table names, or schemas. Both processes load their [shared configuration](configuration.md) separately. The runtime allocates its session buffers using the accepted capacity.
+
+## Multiple connections
+
+A session may use several connections. Each runs the handshake and the data phase independently, so the wire format is the same for one connection or many. The runtime requires every connection of a session to accept the same configuration.
+
+The number of connections is not part of the handshake. Both peers take it from `workers.network` in their [shared configuration](configuration.md#workers). The client dials all connections before handshaking, and the server accepts the whole session before answering any HELLO. A session is one client's connections, because the server serves one transfer at a time. Each connection finishes with its own END; the session completes after every receiver has seen one.
 
 ## Data and completion
 

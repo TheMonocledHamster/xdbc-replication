@@ -1,15 +1,17 @@
 COMPOSE ?= $(if $(shell command -v docker 2>/dev/null),docker compose,podman compose)
 DATASET ?= iot
 COMPRESSION ?= snappy
+TRANSFER_CONFIG ?= transfer
 TRANSFER_TIMEOUT ?= 1m
 DATA_DIR ?= ./data
 FILE ?= $(DATASET).csv
 EXPORT_DIR ?= ./exports
+
 SINK_TYPE ?= postgres
 CSV_OUTPUT_PATH ?= /exports/$(DATASET).csv
 LOCAL_UID ?= $(shell id -u)
 LOCAL_GID ?= $(shell id -g)
-export DATASET COMPRESSION DATA_DIR FILE TRANSFER_TIMEOUT SINK_TYPE CSV_OUTPUT_PATH LOCAL_UID LOCAL_GID
+export DATASET COMPRESSION TRANSFER_CONFIG DATA_DIR FILE TRANSFER_TIMEOUT SINK_TYPE CSV_OUTPUT_PATH LOCAL_UID LOCAL_GID
 
 .PHONY: bench build up up-source up-target seed load fetch transfer verify export e2e e2e-all down test test-postgres
 

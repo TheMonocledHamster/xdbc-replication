@@ -112,47 +112,53 @@ func TestScalarRoundTrip(t *testing.T) {
 		u.RawQuery = q.Encode()
 		return u.String()
 	}
-	for _, mode := range []string{"cache_statement", "simple_protocol"} {
-		for _, compression := range []string{"none", "snappy"} {
-			t.Run(mode+"/"+compression, func(t *testing.T) {
-				c := config
-				c.Compression = compression
-				listener, err := net.Listen("tcp", "127.0.0.1:0")
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer listener.Close()
-				results := make(chan error, 2)
-				sessionSourceURL := withParams(sourceURL, map[string]string{"default_query_exec_mode": mode, "timezone": "America/New_York"})
-				sessionTargetURL := withParams(targetURL, map[string]string{"timezone": "Asia/Kolkata"})
-				go func() {
-					for i := 0; i < 2; i++ {
-						conn, err := listener.Accept()
-						if err != nil {
-							results <- err
-							return
-						}
-						results <- ServeTransfer(ctx, conn, sessionSourceURL, c)
-					}
-				}()
-				for i := 0; i < 2; i++ {
-					result, err := ReceiveTransfer(ctx, listener.Addr().String(), sessionTargetURL, c)
+	// The multi-worker case sends the short table over several connections and
+	// through several compression and write workers.
+	for name, workers := range map[string]Workers{"1worker": {}, "3workers": {Read: 1, Compress: 3, Network: 3, Decompress: 3, Write: 3}} {
+		for _, mode := range []string{"cache_statement", "simple_protocol"} {
+			for _, compression := range []string{"none", "snappy"} {
+				t.Run(name+"/"+mode+"/"+compression, func(t *testing.T) {
+					c := config
+					c.Compression = compression
+					c.Workers = workers
+					c.PoolSize = max(c.PoolSize, c.MinPool())
+					listener, err := net.Listen("tcp", "127.0.0.1:0")
 					if err != nil {
 						t.Fatal(err)
 					}
-					if err := <-results; err != nil {
-						t.Fatal(err)
-					}
-					if result.Rows != int64(len(want)) {
-						t.Fatalf("row count: %d, want %d", result.Rows, len(want))
-					}
-					got := read(t, sink)
-					if !reflect.DeepEqual(got, want) {
-						t.Fatalf("round trip changed values:\ngot: %v\nwant: %v", got, want)
-					}
+					defer listener.Close()
+					results := make(chan error, 2)
+					sessionSourceURL := withParams(sourceURL, map[string]string{"default_query_exec_mode": mode, "timezone": "America/New_York"})
+					sessionTargetURL := withParams(targetURL, map[string]string{"timezone": "Asia/Kolkata"})
+					go func() {
+						for i := 0; i < 2; i++ {
+							conns, err := AcceptConns(listener, c.Stages().Network, 10*time.Second)
+							if err != nil {
+								results <- err
+								return
+							}
+							results <- ServeTransfer(ctx, conns, sessionSourceURL, c)
+						}
+					}()
+					for i := 0; i < 2; i++ {
+						result, err := ReceiveTransfer(ctx, listener.Addr().String(), sessionTargetURL, c)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if err := <-results; err != nil {
+							t.Fatal(err)
+						}
+						if result.Rows != int64(len(want)) {
+							t.Fatalf("row count: %d, want %d", result.Rows, len(want))
+						}
+						got := read(t, sink)
+						if !reflect.DeepEqual(got, want) {
+							t.Fatalf("round trip changed values:\ngot: %v\nwant: %v", got, want)
+						}
 
-				}
-			})
+					}
+				})
+			}
 		}
 	}
 }

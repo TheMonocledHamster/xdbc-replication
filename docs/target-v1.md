@@ -29,4 +29,5 @@ The table must already exist, with compatible column types and names matching th
 
 The [runtime](architecture.md) truncates the sink before a transfer, supplies decompressed buffers, and closes the input after upstream work finishes. Truncation is committed separately before COPY begins, so a failed transfer leaves an empty target rather than restoring its previous contents.
 
+
 Run `make test` for validation, NULL decoding, and rollback tests. `make test-postgres` adds live adapter tests and full scalar round trips through TCP in both compression modes. `make e2e` checks the persistent commands with the real IoT sample.

@@ -45,3 +45,6 @@ exports/
 testdata/*/*.csv
 !testdata/*/sample.csv
 bench-results/
+
+#DS_Store
+*.DS_Store

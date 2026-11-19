@@ -2,7 +2,7 @@ x-app: &app
   image: xdbc-replication:local
   build: .
   environment: &app-env
-    CONFIG_PATH: testdata/${DATASET:-iot}/transfer.json
+    CONFIG_PATH: testdata/${DATASET:-iot}/${TRANSFER_CONFIG:-transfer}.json
     DATA_FILE: /data/${FILE:-${DATASET:-iot}.csv}
     COMPRESSION: ${COMPRESSION:-snappy}
     TRANSFER_TIMEOUT: ${TRANSFER_TIMEOUT:-1m}
