@@ -92,18 +92,18 @@ func decodeCopyField(layout *row.Layout, encoded []byte, col int, dtype row.Dtyp
 }
 
 // decodeRowValues returns values for CSV formatting.
-func decodeRowValues(layout *row.Layout, fields []row.Field, encoded []byte) ([]any, error) {
-	values := make([]any, len(fields))
+func decodeRowValues(values []any, layout *row.Layout, fields []row.Field, encoded []byte) error {
 	for i, field := range fields {
+		values[i] = nil
 		null, err := layout.IsNull(encoded, i)
 		if err == nil && !null {
 			values[i], err = decodeField(layout, encoded, i, field.Type)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("column %d (%s): %w", i, field.Name, err)
+			return fmt.Errorf("column %d (%s): %w", i, field.Name, err)
 		}
 	}
-	return values, nil
+	return nil
 }
 
 func decodeField(layout *row.Layout, encoded []byte, col int, dtype row.Dtype) (any, error) {

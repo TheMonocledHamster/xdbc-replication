@@ -279,9 +279,6 @@ func ReceiveTransferCSV(ctx context.Context, address, outputPath string, c Confi
 	if err := c.Validate(); err != nil {
 		return result, err
 	}
-	if c.Stages().Write != 1 {
-		return result, errors.New("transfer: CSV sink supports a single write worker")
-	}
 	var writer *target.CSVWriter
 	result, err := receiveBatches(ctx, address, c,
 		func(context.Context) error {

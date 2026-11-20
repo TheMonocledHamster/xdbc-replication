@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TheMonocledHamster/xdbc-replication/internal/format/row"
@@ -27,6 +28,7 @@ type CSVConfig struct {
 // CSVWriter decodes XDBC rows and writes CSV records to dst. NULL is represented by
 // an unquoted empty field; an empty non-NULL string is written as "".
 type CSVWriter struct {
+	mu       sync.Mutex // several write workers share one file; the lock covers only the write
 	dst      io.Writer
 	closer   io.Closer
 	layout   *row.Layout
@@ -85,13 +87,14 @@ func (w *CSVWriter) WriteBatch(payload []byte, recordCount uint32) error {
 		return fmt.Errorf("target: invalid CSV row payload: %w", err)
 	}
 	var batch bytes.Buffer
-	encoder := bufio.NewWriter(&batch)
+	encoder := bufio.NewWriterSize(&batch, 64<<10)
+	values, record := make([]any, len(w.fields)), make([]cell, len(w.fields))
 	for n := 0; n < int(recordCount); n++ {
-		values, err := decodeRowValues(w.layout, w.fields, payload[n*w.layout.RowSize():(n+1)*w.layout.RowSize()])
+		err := decodeRowValues(values, w.layout, w.fields, payload[n*w.layout.RowSize():(n+1)*w.layout.RowSize()])
 		if err != nil {
 			return fmt.Errorf("target: decode CSV row %d: %w", n+1, err)
 		}
-		record, err := w.formatRow(values)
+		err = w.formatRow(values, record)
 		if err != nil {
 			return fmt.Errorf("target: format CSV row %d: %w", n+1, err)
 		}
@@ -102,6 +105,8 @@ func (w *CSVWriter) WriteBatch(payload []byte, recordCount uint32) error {
 	if err := encoder.Flush(); err != nil {
 		return fmt.Errorf("target: encode CSV batch: %w", err)
 	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if err := writeAll(w.dst, batch.Bytes()); err != nil {
 		return fmt.Errorf("target: write CSV batch: %w", err)
 	}
@@ -136,24 +141,24 @@ func writeAll(dst io.Writer, data []byte) error {
 }
 
 type cell struct {
-	text string
-	null bool
+	text  string
+	null  bool
+	plain bool // never needs quoting (not a text column)
 }
 
-func (w *CSVWriter) formatRow(values []any) ([]cell, error) {
-	record := make([]cell, len(w.fields))
+func (w *CSVWriter) formatRow(values []any, record []cell) error {
 	for i, field := range w.fields {
 		if values[i] == nil {
-			record[i].null = true
+			record[i] = cell{null: true}
 			continue
 		}
 		text, err := formatValue(values[i], field.Type)
 		if err != nil {
-			return nil, fmt.Errorf("column %d (%s): %w", i, field.Name, err)
+			return fmt.Errorf("column %d (%s): %w", i, field.Name, err)
 		}
-		record[i].text = text
+		record[i] = cell{text: text, plain: field.Type != row.String && field.Type != row.Char}
 	}
-	return record, nil
+	return nil
 }
 
 func formatValue(v any, dtype row.Dtype) (string, error) {
@@ -211,6 +216,9 @@ func formatFloat(v float64, bits int) string {
 	case math.IsInf(v, -1):
 		return "-Infinity"
 	default:
+		if v == math.Trunc(v) && math.Abs(v) < 1<<24 && !(v == 0 && math.Signbit(v)) {
+			return strconv.FormatInt(int64(v), 10)
+		}
 		return strconv.FormatFloat(v, 'f', -1, bits)
 	}
 }
@@ -227,21 +235,18 @@ func writeRecord(out *bufio.Writer, record []cell) error {
 		if value.null {
 			continue
 		}
-		quote := value.text == "" || strings.ContainsAny(value.text, ",\"\r\n")
+		quote := !value.plain && (value.text == "" || strings.ContainsAny(value.text, ",\"\r\n"))
 		if quote {
 			if err := out.WriteByte('"'); err != nil {
 				return err
 			}
 		}
-		for _, r := range value.text {
-			if r == '"' && quote {
-				if err := out.WriteByte('"'); err != nil {
-					return err
-				}
-			}
-			if _, err := out.WriteRune(r); err != nil {
-				return err
-			}
+		text := value.text
+		if quote {
+			text = strings.ReplaceAll(text, `"`, `""`)
+		}
+		if _, err := out.WriteString(text); err != nil {
+			return err
 		}
 		if quote {
 			if err := out.WriteByte('"'); err != nil {

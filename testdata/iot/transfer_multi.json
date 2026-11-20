@@ -3,9 +3,9 @@
   "table": "iotm",
   "compression": "snappy",
   "buffer_size": 65536,
-  "pool_size": 15,
+  "pool_size": 16,
   "queue_capacity": 2,
-  "workers": {"read": 3, "compress": 3, "network": 2, "decompress": 3, "write": 3},
+  "workers": {"read": 3, "compress": 3, "network": 2, "decompress": 3, "write": 4},
   "fields": [
     {
       "name": "id",
