@@ -1,0 +1,16 @@
+--- a/JDBCUtils.java
++++ b/JDBCUtils.java
+@@ -89,6 +89,13 @@
+       if (conn.getQueryTimeout() != 0) {
+         tmpStmt.setQueryTimeout(conn.getQueryTimeout());
+       }
++      // [replication] Opt-in chunked fetching. The PostgreSQL driver honours a fetch
++      // size (defaultRowFetchSize=N in the server URL) only outside autocommit. Without
++      // that URL parameter this does nothing, so jdbc_fdw behaves exactly like the
++      // original (whole result set loaded into the JVM).
++      if (conn.getConnection().getMetaData().getURL().contains("defaultRowFetchSize")) {
++        conn.getConnection().setAutoCommit(false);
++      }
+       tmpResultSet = tmpStmt.executeQuery(query);
+       rSetMetadata = tmpResultSet.getMetaData();
+       tmpNumberOfColumns = rSetMetadata.getColumnCount();

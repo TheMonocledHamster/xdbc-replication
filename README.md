@@ -100,6 +100,20 @@ Default host ports are client `8080`, source PostgreSQL `5433`, and sink Postgre
 
 `make down` retains data. `docker compose down -v` explicitly removes this project's database volumes.
 
+## Benchmark (Fig. 9b)
+
+Fig. 9b times Postgres → CSV for three transfer methods: XDBC, Postgres's built-in `postgres_fdw` (native) and `jdbc_fdw` (JDBC).
+
+```sh
+docker compose run --build --rm bench
+```
+
+Results on one CloudLab xl170 node, original C++ artifact vs. our Go replication:
+- [8 readers](https://claude.ai/artifact/LT7oPDtRSYtc62UjYX729j) (`transfer_multi`; matches the original's `--read-parallelism 8`)
+- [3 readers](https://claude.ai/artifact/2b4dNbj2Kcgzk8qqm43GY8) (earlier setting, for comparison)
+
+See [`bench/README.md`](bench/README.md) for options and the commands behind these results.
+
 ## Run on separate machines
 
 Use `make up-source` on the source host and `make up-target` on the target host, with `SERVER_ADDR` pointing to the source IP and port. Bind the source transfer and database ports to the experiment interface. See the [two-host guide](docs/multi-machine.md) for complete Compose and native CloudLab commands.
