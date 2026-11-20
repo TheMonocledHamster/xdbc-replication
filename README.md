@@ -109,8 +109,8 @@ docker compose run --build --rm bench
 ```
 
 Results on one CloudLab xl170 node, original C++ artifact vs. our Go replication:
-- [3 readers](https://claude.ai/artifact/2b4dNbj2Kcgzk8qqm43GY8) (current `transfer_multi`)
-- [8 readers](https://claude.ai/artifact/LT7oPDtRSYtc62UjYX729j) (matches the original's `--read-parallelism 8`)
+- [8 readers](https://claude.ai/artifact/LT7oPDtRSYtc62UjYX729j) (`transfer_multi`; matches the original's `--read-parallelism 8`)
+- [3 readers](https://claude.ai/artifact/2b4dNbj2Kcgzk8qqm43GY8) (earlier setting, for comparison)
 
 See [`bench/README.md`](bench/README.md) for options and the commands behind these results.
 
