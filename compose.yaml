@@ -127,6 +127,7 @@ services:
       DATASETS: ${DATASETS:-iot}
       JDBC: ${JDBC:-off}
       ROUNDS: ${ROUNDS:-3}
+      TRANSFER_CONFIG: ${TRANSFER_CONFIG:-transfer}
       SINKS: ${SINKS:-pg,csv}
       MACHINE: ${MACHINE:-}
       JDBC_HEAP_MB: ${JDBC_HEAP_MB:-}

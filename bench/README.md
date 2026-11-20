@@ -46,6 +46,7 @@ docker compose run --build --rm -e DATASETS=all -e JDBC=faithful -e MACHINE="xl1
 | `DATASETS` | `iot` | `lineitem`, `acs`, `iot`, `icu`, several separated by spaces or commas, or `all` |
 | `JDBC` | `off` | `faithful`: jdbc_fdw exactly like the original (loads the whole table into Java memory). `stream`: fetches 10,000 rows at a time, works on small machines, **not** faithful |
 | `ROUNDS` | `3` | Rounds per system and sink |
+| `TRANSFER_CONFIG` | `transfer` | Ours: `transfer` (one worker per stage) or `transfer_multi` (several workers per stage, `testdata/<dataset>/transfer_multi.json`) |
 | `SINKS` | `pg,csv` | `pg` (into a target table), `csv` (into a CSV file), or both |
 | `MACHINE` | empty | A label for your machine, shown on the chart |
 | `JDBC_HEAP_MB` | Java's default (¼ of RAM) | Java memory cap for JDBC, e.g. `16000` |

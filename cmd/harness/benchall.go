@@ -59,8 +59,8 @@ func benchAll() error {
 	}
 	defer chownLikeParent(out)
 
-	fmt.Printf("Fig. 9b benchmark, run %s\n  datasets: %s\n  systems:  %s\n  rounds:   %s, sinks: %s\n",
-		runID, strings.Join(datasets, " "), systems, transfer.Env("BENCH_ROUNDS", "3"), transfer.Env("BENCH_SINKS", "pg,csv"))
+	fmt.Printf("Fig. 9b benchmark, run %s\n  datasets: %s\n  systems:  %s\n  rounds:   %s, sinks: %s\n  ours:     %s\n",
+		runID, strings.Join(datasets, " "), systems, transfer.Env("BENCH_ROUNDS", "3"), transfer.Env("BENCH_SINKS", "pg,csv"), transfer.Env("TRANSFER_CONFIG", "transfer"))
 	for _, name := range datasets {
 		if err := benchDataset(ctx, name); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
@@ -74,7 +74,9 @@ func benchAll() error {
 }
 
 func benchDataset(ctx context.Context, name string) error {
-	configPath := filepath.Join("testdata", name, "transfer.json")
+	// TRANSFER_CONFIG picks the transfer config, as in make e2e: "transfer" (one worker per stage)
+	// or "transfer_multi" (several workers per stage).
+	configPath := filepath.Join("testdata", name, transfer.Env("TRANSFER_CONFIG", "transfer")+".json")
 	d, err := dataset.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("unknown dataset (choose from lineitem acs iot icu): %w", err)

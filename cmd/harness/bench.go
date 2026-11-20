@@ -37,6 +37,7 @@ type benchResult struct {
 	OK       bool    `json:"ok"`
 	Note     string  `json:"note,omitempty"`
 	JDBCMode string  `json:"jdbc_mode,omitempty"`
+	Config   string  `json:"transfer_config,omitempty"`
 	Latency  string  `json:"latency_ms,omitempty"`
 	Time     string  `json:"time"`
 }
@@ -76,6 +77,7 @@ func (h harness) bench(ctx context.Context) error {
 			RunID: transfer.Env("BENCH_RUN_ID", time.Now().UTC().Format("20060102T150405Z")), Machine: os.Getenv("BENCH_MACHINE"),
 			CPUs: runtime.NumCPU(), MemGB: memGB(), Dataset: h.dataset.Name,
 			JDBCMode: os.Getenv("BENCH_JDBC_MODE"), Latency: os.Getenv("BENCH_LATENCY_MS"),
+			Config: transfer.Env("TRANSFER_CONFIG", "transfer"),
 		},
 	}
 	if err := h.source.QueryRow(ctx, "SELECT count(*) FROM "+h.config.Relation()).Scan(&b.sourceRows); err != nil {
