@@ -102,12 +102,17 @@ Default host ports are client `8080`, source PostgreSQL `5433`, and sink Postgre
 
 ## Benchmark (Fig. 9b)
 
+Fig. 9b times Postgres → CSV for three transfer methods: XDBC, Postgres's built-in `postgres_fdw` (native) and `jdbc_fdw` (JDBC).
+
 ```sh
 docker compose run --build --rm bench
 ```
 
-Times ours vs PostgreSQL's built-in `postgres_fdw` (and optionally JDBC) and prints a summary.
-See [`bench/README.md`](bench/README.md) for options.
+Results on one CloudLab xl170 node, original C++ artifact vs. our Go replication:
+- [3 readers](https://claude.ai/artifact/2b4dNbj2Kcgzk8qqm43GY8) (current `transfer_multi`)
+- [8 readers](https://claude.ai/artifact/LT7oPDtRSYtc62UjYX729j) (matches the original's `--read-parallelism 8`)
+
+See [`bench/README.md`](bench/README.md) for options and the commands behind these results.
 
 ## Run on separate machines
 

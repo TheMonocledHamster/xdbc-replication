@@ -1,7 +1,7 @@
 # Fig. 9b benchmark
 
 Times how fast our Go XDBC, PostgreSQL's built-in `postgres_fdw` and (optionally) JDBC copy a table
-between two PostgreSQL databases (Fig. 9b of the XDBC paper). Runs entirely in Docker.
+from PostgreSQL into a CSV file (Fig. 9b of the XDBC paper) and into another PostgreSQL table. Runs entirely in Docker.
 
 ## Setup
 
@@ -19,7 +19,15 @@ The first run builds the containers and downloads the dataset (iot, ~3 GB); a fu
 
 That runs ours and native. To add JDBC, put one of these before `bench`:
 - `-e JDBC=stream`: fetches 10,000 rows at a time. Works on any machine, but isn't how the original ran it.
-- `-e JDBC=faithful`: the whole table at once, exactly like the original. Needs a 32 GB+ machine.
+- `-e JDBC=faithful`: the whole table at once, exactly like the original. Needs a 64 GB machine.
+
+To reproduce our final figure (Postgres → CSV, several workers per stage, faithful JDBC; 64 GB machine):
+```sh
+docker compose run --build --rm -e DATASETS=all -e SINKS=csv -e TRANSFER_CONFIG=transfer_multi bench
+docker compose run --build --rm -e DATASETS="acs iot icu" -e SINKS=csv -e TRANSFER_CONFIG=transfer_multi \
+  -e JDBC=faithful -e JDBC_HEAP_MB=40000 bench
+```
+The second run adds JDBC. Like the original, it leaves out lineitem, which the figure shows as "Timeout after 20m".
 
 ---
 
@@ -49,7 +57,7 @@ docker compose run --build --rm -e DATASETS=all -e JDBC=faithful -e MACHINE="xl1
 | `TRANSFER_CONFIG` | `transfer` | Ours: `transfer` (one worker per stage) or `transfer_multi` (several workers per stage, `testdata/<dataset>/transfer_multi.json`) |
 | `SINKS` | `pg,csv` | `pg` (into a target table), `csv` (into a CSV file), or both |
 | `MACHINE` | empty | A label for your machine, shown on the chart |
-| `JDBC_HEAP_MB` | Java's default (¼ of RAM) | Java memory cap for JDBC, e.g. `16000` |
+| `JDBC_HEAP_MB` | Java's default (¼ of RAM) | Java memory cap for JDBC, e.g. `40000` |
 | `QUERY_TIMEOUT` | `20m` | Limit for each native/JDBC query; slower runs are recorded as "timeout" |
 | `BENCH_DATA` | Docker volume | A folder with existing `<dataset>.csv` files, to skip the download |
 
@@ -84,8 +92,9 @@ processes and drives the timing.
 
 `jdbc_fdw` never asks the driver to fetch in chunks, so the driver loads the whole table
 into Java memory before returning a row. Java's default cap is ¼ of RAM. Rough needs:
-icu ~8 GB, acs ~10 GB, iot ~13 GB, lineitem ~30 GB. So `JDBC=faithful` needs a 32 GB+
-machine for icu/acs/iot (with `JDBC_HEAP_MB=16000`) and ~64 GB for lineitem. On a 16 GB
+icu ~8 GB, acs ~10 GB, iot ~13 GB, lineitem ~30 GB. In practice give it much more: on a 62 GB
+CloudLab node, the original artifact's JDBC run on iot stalled for over 15 minutes at Java's
+default cap (~15.5 GB); with a 40 GB cap, it and our run both finished in 6–8 minutes. So `JDBC=faithful` needs a 64 GB machine. On a 16 GB
 laptop it fails (iot crashed after 49 s, acs failed after 259 s).
 
 `JDBC=stream` adds `defaultRowFetchSize=10000` to the JDBC URL; `jdbc/fetch-size.patch`
