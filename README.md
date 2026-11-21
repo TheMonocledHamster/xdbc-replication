@@ -17,19 +17,31 @@ Select a dataset with `DATASET`. The default is `iot`.
 
 Each has a checked-in 128-row real-data sample, a PostgreSQL schema, and a transfer configuration. Lineitem uses the PostgreSQL DDL's BIGINT, exact NUMERIC, and DATE types. See [dataset provenance and input formats](testdata/README.md).
 
-## Quick start
+## Reproduce Fig. 9b
 
-The quick start is a correctness check. It runs the full pipeline (server, client, both PostgreSQL databases) end to end on the 128-row sample of each dataset that ships with the repo, and verifies every transferred row against the source. It does not measure performance; for that, see [Benchmark (Fig. 9b)](#benchmark-fig-9b).
+Five steps, run in order. Steps 1–3 take about 10 minutes; step 4 takes a few hours.
+
+**Machine:** 64 GB RAM (for JDBC), ~60 GB free disk, Mac or Linux. We used one CloudLab xl170 node (Ubuntu 20.04).
 
 ### 1. Install Docker, Compose v2, Make and Git
 
-- **Mac:** install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (includes Compose) and start it. Install Make and Git with `xcode-select --install`.
-- **Ubuntu/Linux:** install Docker Engine and the Compose plugin from [Docker's apt repository](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository), plus `sudo apt-get install -y make git`. Then let your user run Docker without `sudo`:
+- **Mac:** install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (includes Compose) and start it. In Docker Desktop → Settings → Resources, give Docker all memory and at least 60 GB disk. Then:
   ```sh
-  sudo usermod -aG docker $USER   # then log out and back in
+  xcode-select --install
   ```
+- **Ubuntu:** install Docker Engine and the Compose plugin from [Docker's apt repository](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository), then:
+  ```sh
+  sudo apt-get install -y make git
+  sudo usermod -aG docker $USER
+  ```
+  Log out and back in so the `docker` group applies.
 
-Check: `docker compose version` and `make --version` both print a version.
+Check that both print a version:
+
+```sh
+docker compose version
+make --version
+```
 
 ### 2. Get the code
 
@@ -41,116 +53,86 @@ cd xdbc-replication
 ### 3. Run the correctness check (about 5 minutes, no download)
 
 ```sh
-make e2e DATASET=acs
 make e2e-all
 ```
 
-`e2e-all` checks all four datasets using the 128-row samples in the repo. Each run loads the sample, verifies repeated transfers, forces a sink failure and checks recovery, tests an empty source, then leaves a verified sample behind.
+This runs the full pipeline (server, client, both PostgreSQL databases) end to end on the 128-row sample of each dataset that ships with the repo, and verifies every transferred row against the source. It checks correctness only; it doesn't time anything.
 
-What you'll see:
+It passed if `make` finishes without `make: *** ... Error`. Along the way you'll see:
 - `verified <dataset>: 128 rows, ... SHA-256 ...` after each transfer.
-- One `{"error": "... violates check constraint \"harness_reject\" ..."}` per dataset. **That's expected:** it's the forced sink failure, and the next transfer recovers.
-- The run passed if `make` finishes without `make: *** ... Error`.
+- One `{"error": "... violates check constraint \"harness_reject\" ..."}` per dataset. **That's expected:** the check forces a sink failure on purpose, and the next transfer recovers.
 
-By default each stage (read, compress, send, receive, decompress, write) runs one worker. To run several per stage, select the multi-worker configuration:
-
-```sh
-make e2e DATASET=iot TRANSFER_CONFIG=transfer_multi
-```
-
-Worker counts, connection counts, and buffer sizing are described in [Configuration](docs/configuration.md#workers).
-
-### 4. Run the benchmark
-
-To time the transfers and reproduce Fig. 9b on the full datasets, see [Benchmark (Fig. 9b)](#benchmark-fig-9b).
-
-## Work interactively
+### 4. Run the benchmark (a few hours)
 
 ```sh
-make up DATASET=lineitem
-make seed DATASET=lineitem
-make transfer DATASET=lineitem
-make verify DATASET=lineitem
-make export DATASET=lineitem
+docker compose run --build --rm -e DATASETS=lineitem -e SINKS=csv -e TRANSFER_CONFIG=transfer_multi bench
+docker compose run --build --rm -e DATASETS="acs iot icu" -e SINKS=csv -e TRANSFER_CONFIG=transfer_multi -e JDBC=faithful -e JDBC_HEAP_MB=40000 bench
 ```
 
-The export is `exports/lineitem.csv`, with headers and deterministic row ordering. Use the same dataset in subsequent commands. `make up` switches both application processes to that dataset; tables for other datasets remain in the databases.
+The first command times XDBC and native on lineitem. The second adds JDBC on the other three datasets; like the original, JDBC isn't run on lineitem, which Fig. 9b shows as "Timeout after 20m". Each command downloads the datasets it needs the first time (~15 GB of CSV in total). Keep the machine awake: on a Mac, put `caffeinate -i` before each command.
 
-To use the XDBC CSV sink, start client with `SINK_TYPE=csv`. This will write the rows to `exports/acs.csv`. The harness loads that file into its target table to verify row counts and values. The CSV sink output has no header, matching the configured row schema order. 
+### 5. Read the results
 
-You can trigger the active client directly:
+Each command ends with a table of median seconds (3 rounds) per dataset. "Ours" is our Go XDBC; "Native" is `postgres_fdw`; "JDBC" is `jdbc_fdw`. Every timed run is also saved in `bench-results/<run id>.jsonl`.
+
+Our results on one CloudLab xl170 node, next to the original C++ artifact:
+- [8 readers](https://claude.ai/artifact/LT7oPDtRSYtc62UjYX729j): the current `transfer_multi` setting, matching the original's `--read-parallelism 8`.
+- [3 readers](https://claude.ai/artifact/2b4dNbj2Kcgzk8qqm43GY8): an earlier setting, for comparison.
+
+Options (other datasets, rounds, Postgres → Postgres, JDBC streaming for small machines) are in [`bench/README.md`](bench/README.md).
+
+## Explore the data (optional)
+
+Not needed for Fig. 9b. These commands run one XDBC transfer at a time so you can look at the data.
+
+### On the 128-row samples
+
+```sh
+make up DATASET=lineitem         # start both databases, our server and client
+make seed DATASET=lineitem       # load the 128-row sample into the source database
+make transfer DATASET=lineitem   # copy it to the target database with XDBC
+make verify DATASET=lineitem     # compare target to source (row count + SHA-256)
+make export DATASET=lineitem     # write the target table to exports/lineitem.csv
+```
+
+To write a CSV file with XDBC instead of a target table, restart the client with the CSV sink, then transfer:
+
+```sh
+make up DATASET=lineitem SINK_TYPE=csv
+make transfer DATASET=lineitem SINK_TYPE=csv   # writes exports/lineitem.csv (no header)
+make verify DATASET=lineitem SINK_TYPE=csv
+```
+
+Both write `exports/lineitem.csv`, so the second replaces the first. To use several workers per stage, add `TRANSFER_CONFIG=transfer_multi` to every command ([details](docs/configuration.md#workers)). To start a transfer over HTTP instead of `make transfer`:
 
 ```sh
 curl -X POST http://localhost:8080/transfer
 # {"rows":128,"elapsed_ms":12}
 ```
 
-The API runs synchronously. A concurrent request receives HTTP 409. Each PostgreSQL transfer clears the selected sink table, then streams all batches through one COPY transaction. Failed transfers roll back all inserts; the preceding truncation remains committed, leaving the table empty.
-
-## Full datasets
-
-Download the selected archive explicitly, extract its data as CSV, and load it:
+### On a full dataset
 
 ```sh
-make fetch DATASET=acs TRANSFER_TIMEOUT=30m
+make fetch DATASET=acs TRANSFER_TIMEOUT=30m      # download to data/acs.csv
 make up DATASET=acs TRANSFER_TIMEOUT=30m
-make load DATASET=acs TRANSFER_TIMEOUT=30m
+make load DATASET=acs TRANSFER_TIMEOUT=30m       # load the full file into the source database
 make transfer DATASET=acs TRANSFER_TIMEOUT=30m
 make verify DATASET=acs TRANSFER_TIMEOUT=30m
 make export DATASET=acs TRANSFER_TIMEOUT=30m
 ```
 
-Downloads go to `data/<dataset>.csv`; exports go to `exports/<dataset>.csv`. Downloads and exports use temporary `.part` files and rename them only after success. Full data stays outside Git and Docker images. Lineitem's much larger workload may need a longer timeout.
+Use `make load`, not `make seed`, for full data: `seed` and `e2e` replace the source table with the 128-row sample. Lineitem is 60M rows and may need a longer timeout (e.g. `TRANSFER_TIMEOUT=1h`).
 
-To use the existing full IoT file in `data/iot.csv`:
-
-```sh
-make up DATASET=iot TRANSFER_TIMEOUT=30m
-make load DATASET=iot TRANSFER_TIMEOUT=30m
-make transfer DATASET=iot TRANSFER_TIMEOUT=30m
-make verify DATASET=iot TRANSFER_TIMEOUT=30m
-make export DATASET=iot TRANSFER_TIMEOUT=30m
-```
-
-`make load` imports the complete file transactionally, with the header setting recorded for that dataset. The authors' full files are headerless; the sample CSVs include headers. Do not use `make seed` or `make e2e` to load full data: they replace the selected source with its small sample.
-
-Verification compares row counts and SHA-256 digests of sorted PostgreSQL CSV output across all columns. Duplicates are retained. Sorting happens in PostgreSQL; Go streams both verification and export without holding the relation in memory.
-
-## Inspect and stop
+### Inspect and stop
 
 ```sh
 docker compose ps
 docker compose logs -f server client
-make down
+make down                 # stop; keeps the data
+docker compose down -v    # stop and delete this project's databases
 ```
 
-Default host ports are client `8080`, source PostgreSQL `5433`, and sink PostgreSQL `5434`, all bound to localhost. Both databases use database `xdbc_test`, user `postgres`, and password `postgres`.
-
-`make down` retains data. `docker compose down -v` explicitly removes this project's database volumes.
-
-## Benchmark (Fig. 9b)
-
-Fig. 9b times Postgres → CSV for three transfer methods: XDBC, Postgres's built-in `postgres_fdw` (native) and `jdbc_fdw` (JDBC).
-
-```sh
-docker compose run --build --rm bench
-```
-
-That times iot only, with one worker per stage. To reproduce our final figure (all four datasets, several workers per stage, faithful JDBC):
-
-```sh
-docker compose run --build --rm -e DATASETS=all -e SINKS=csv -e TRANSFER_CONFIG=transfer_multi bench
-docker compose run --build --rm -e DATASETS="acs iot icu" -e SINKS=csv -e TRANSFER_CONFIG=transfer_multi \
-  -e JDBC=faithful -e JDBC_HEAP_MB=40000 bench
-```
-
-The first run downloads the full datasets (~15 GB of CSV; ~60 GB free disk needed). Faithful JDBC needs a 64 GB machine. Keep the machine awake; the full run takes hours. Results print as a table and are saved in `bench-results/`.
-
-Results on one CloudLab xl170 node, original C++ artifact vs. our Go replication:
-- [8 readers](https://claude.ai/artifact/LT7oPDtRSYtc62UjYX729j) (`transfer_multi`; matches the original's `--read-parallelism 8`)
-- [3 readers](https://claude.ai/artifact/2b4dNbj2Kcgzk8qqm43GY8) (earlier setting, for comparison)
-
-See [`bench/README.md`](bench/README.md) for options and the commands behind these results.
+Default host ports are client `8080`, source PostgreSQL `5433`, and sink PostgreSQL `5434`, all bound to localhost. Both databases use database `xdbc_test`, user `postgres`, and password `postgres`. How transfers behave on failure and under concurrent requests is in [Architecture](docs/architecture.md).
 
 ## Run on separate machines
 
