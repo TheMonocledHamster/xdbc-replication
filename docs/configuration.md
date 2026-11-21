@@ -26,7 +26,7 @@ The source and sink support NULL and all [row scalar types](row-v1.md#field-enco
 The optional `workers` object sets how many workers run in each stage. Every field defaults to `1`, so a configuration without it runs one worker per stage.
 
 ```json
-"workers": {"read": 3, "compress": 3, "network": 2, "decompress": 3, "write": 3}
+"workers": {"read": 8, "compress": 3, "network": 2, "decompress": 3, "write": 4}
 ```
 
 | Field | Runs in | What runs in parallel |
