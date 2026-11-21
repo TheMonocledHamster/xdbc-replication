@@ -12,8 +12,7 @@ from PostgreSQL into a CSV file (Fig. 9b of the XDBC paper) and into another Pos
    cd xdbc-replication
    docker compose run --build --rm bench
    ```
-3. Read the summary table at the end, or drop `bench-results/<run id>.jsonl` on
-   <https://claude.ai/artifact/6d7yED3FfpTFSj7dHxYGBa> to see it as the Fig. 9b chart.
+3. Read the summary table at the end. Every run is also saved in `bench-results/<run id>.jsonl`.
 
 The first run builds the containers and downloads the dataset (iot, ~3 GB); a full iot run takes about 15 minutes.
 

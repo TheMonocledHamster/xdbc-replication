@@ -21,12 +21,15 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const pageURL = "https://claude.ai/artifact/6d7yED3FfpTFSj7dHxYGBa"
-
 func benchAll() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	for _, k := range []string{"SOURCE_DATABASE_URL", "TARGET_DATABASE_URL"} {
+		if os.Getenv(k) == "" {
+			return fmt.Errorf("%s is not set; run the benchmark with docker compose run --build --rm bench", k)
+		}
+	}
 	datasets := strings.Fields(strings.ReplaceAll(transfer.Env("DATASETS", "iot"), ",", " "))
 	if len(datasets) == 1 && datasets[0] == "all" {
 		datasets = []string{"lineitem", "acs", "iot", "icu"}
@@ -69,7 +72,7 @@ func benchAll() error {
 	if err := benchSummary(); err != nil {
 		return err
 	}
-	fmt.Printf("\nRaw results: bench-results/%s.jsonl\nTo see them as the Fig. 9b chart, open %s and drop that file on the page.\n", runID, pageURL)
+	fmt.Printf("\nRaw results: bench-results/%s.jsonl\n", runID)
 	return nil
 }
 
