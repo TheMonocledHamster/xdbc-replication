@@ -19,14 +19,38 @@ Each has a checked-in 128-row real-data sample, a PostgreSQL schema, and a trans
 
 ## Quick start
 
-Install Docker with Compose v2 and Make. Run from the repository root:
+The quick start is a correctness check. It runs the full pipeline (server, client, both PostgreSQL databases) end to end on the 128-row sample of each dataset that ships with the repo, and verifies every transferred row against the source. It does not measure performance; for that, see [Benchmark (Fig. 9b)](#benchmark-fig-9b).
+
+### 1. Install Docker, Compose v2, Make and Git
+
+- **Mac:** install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (includes Compose) and start it. Install Make and Git with `xcode-select --install`.
+- **Ubuntu/Linux:** install Docker Engine and the Compose plugin from [Docker's apt repository](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository), plus `sudo apt-get install -y make git`. Then let your user run Docker without `sudo`:
+  ```sh
+  sudo usermod -aG docker $USER   # then log out and back in
+  ```
+
+Check: `docker compose version` and `make --version` both print a version.
+
+### 2. Get the code
+
+```sh
+git clone https://github.com/TheMonocledHamster/xdbc-replication.git
+cd xdbc-replication
+```
+
+### 3. Run the correctness check (about 5 minutes, no download)
 
 ```sh
 make e2e DATASET=acs
 make e2e-all
 ```
 
-`e2e-all` checks all four samples with Snappy. Each run loads the selected sample, verifies repeated transfers, forces a sink failure and checks recovery, tests an empty source, then leaves a verified sample behind. No dataset download is needed for these checks.
+`e2e-all` checks all four datasets using the 128-row samples in the repo. Each run loads the sample, verifies repeated transfers, forces a sink failure and checks recovery, tests an empty source, then leaves a verified sample behind.
+
+What you'll see:
+- `verified <dataset>: 128 rows, ... SHA-256 ...` after each transfer.
+- One `{"error": "... violates check constraint \"harness_reject\" ..."}` per dataset. **That's expected:** it's the forced sink failure, and the next transfer recovers.
+- The run passed if `make` finishes without `make: *** ... Error`.
 
 By default each stage (read, compress, send, receive, decompress, write) runs one worker. To run several per stage, select the multi-worker configuration:
 
@@ -35,6 +59,10 @@ make e2e DATASET=iot TRANSFER_CONFIG=transfer_multi
 ```
 
 Worker counts, connection counts, and buffer sizing are described in [Configuration](docs/configuration.md#workers).
+
+### 4. Run the benchmark
+
+To time the transfers and reproduce Fig. 9b on the full datasets, see [Benchmark (Fig. 9b)](#benchmark-fig-9b).
 
 ## Work interactively
 
@@ -107,6 +135,16 @@ Fig. 9b times Postgres → CSV for three transfer methods: XDBC, Postgres's buil
 ```sh
 docker compose run --build --rm bench
 ```
+
+That times iot only, with one worker per stage. To reproduce our final figure (all four datasets, several workers per stage, faithful JDBC):
+
+```sh
+docker compose run --build --rm -e DATASETS=all -e SINKS=csv -e TRANSFER_CONFIG=transfer_multi bench
+docker compose run --build --rm -e DATASETS="acs iot icu" -e SINKS=csv -e TRANSFER_CONFIG=transfer_multi \
+  -e JDBC=faithful -e JDBC_HEAP_MB=40000 bench
+```
+
+The first run downloads the full datasets (~15 GB of CSV; ~60 GB free disk needed). Faithful JDBC needs a 64 GB machine. Keep the machine awake; the full run takes hours. Results print as a table and are saved in `bench-results/`.
 
 Results on one CloudLab xl170 node, original C++ artifact vs. our Go replication:
 - [8 readers](https://claude.ai/artifact/LT7oPDtRSYtc62UjYX729j) (`transfer_multi`; matches the original's `--read-parallelism 8`)
